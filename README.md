@@ -7,7 +7,7 @@
 ```
 Xboard 面板 API (getNodes)
     ↓
-sync-nodes.py (每 60s)
+sync-nodes (每 60s)
     ↓ 对比 host=本机IP 的节点 vs 本机 systemd 实例
     ↓
 xboard-node@<node_id>.service → 读 /etc/xboard-node/<node_id>.yml
@@ -42,7 +42,7 @@ bash <(curl -sL https://raw.githubusercontent.com/fuckproxy/xnodeauto/main/insta
 
 ```bash
 # 1. 手动跑一次,看输出是否正常
-python3 /usr/local/bin/sync-nodes.py
+sync-nodes
 
 # 2. 确认节点在跑
 systemctl status xboard-node@<node_id>
@@ -62,7 +62,7 @@ journalctl -u xboard-node@1.service -f   # 某个节点日志
 
 **API 401/403** — 确认 admin 账号是管理员 (`is_admin = true`),用 F12 抓请求对比格式。
 
-**多 IP 识别不到** — 编辑 `/usr/local/bin/sync-nodes.py`,在 `MY_IPS = get_my_ips()` 后加 `MY_IPS.add("1.2.3.4")`。
+**多 IP 识别不到** — 脚本自动探测本地网卡 IP 和公网 IP,如果有遗漏可以提 issue。
 
 ## 许可
 

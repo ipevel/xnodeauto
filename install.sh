@@ -14,6 +14,7 @@ set -e
 # ============================================================
 
 REPO_RAW="https://raw.githubusercontent.com/fuckproxy/xnodeauto/main"
+REPO_API="https://api.github.com/repos/fuckproxy/xnodeauto/releases/latest"
 
 # ---------- 解析参数 ----------
 XBOARD_URL=""
@@ -42,22 +43,9 @@ echo "=== Xboard Node Auto-Sync Installer ==="
 # ---------- 1. 系统依赖 ----------
 echo "[1/7] Installing system dependencies..."
 apt update
-apt install -y python3-yaml python3-requests wget
+apt install -y wget
 
-# ---------- 2. 下载 xboard-node 二进制 ----------
-echo "[2/7] Downloading xboard-node binary..."
-
-# 自动获取最新 release 版本号(跳过 pre-release 和 draft)
-XBOARD_NODE_VERSION=$(wget -qO- "https://api.github.com/repos/cedar2025/Xboard-Node/releases/latest" \
-  | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-
-if [ -z "$XBOARD_NODE_VERSION" ]; then
-    echo "[WARN] Failed to fetch latest version from GitHub, falling back to v1.0.2"
-    XBOARD_NODE_VERSION="v1.0.2"
-fi
-
-echo "  Latest version: ${XBOARD_NODE_VERSION}"
-
+# ---------- 架构检测 ----------
 ARCH=$(uname -m)
 case "$ARCH" in
     x86_64)  ARCH_SUFFIX="amd64" ;;
@@ -68,31 +56,52 @@ case "$ARCH" in
         ;;
 esac
 
+# ---------- 2. 下载 xboard-node 二进制 ----------
+echo "[2/7] Downloading xboard-node binary..."
+
+XBOARD_NODE_VERSION=$(wget -qO- "https://api.github.com/repos/cedar2025/Xboard-Node/releases/latest" \
+  | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+
+if [ -z "$XBOARD_NODE_VERSION" ]; then
+    echo "[WARN] Failed to fetch latest version, falling back to v1.0.2"
+    XBOARD_NODE_VERSION="v1.0.2"
+fi
+
+echo "  xboard-node version: ${XBOARD_NODE_VERSION}"
+
 DOWNLOAD_URL="https://github.com/cedar2025/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}"
 
 if [ ! -f /usr/local/bin/xboard-node ]; then
     wget -O /usr/local/bin/xboard-node "$DOWNLOAD_URL"
     chmod +x /usr/local/bin/xboard-node
-    echo "  Downloaded xboard-node ${XBOARD_NODE_VERSION} (${ARCH_SUFFIX})"
+    echo "  Downloaded xboard-node (${ARCH_SUFFIX})"
 else
-    echo "  /usr/local/bin/xboard-node already exists, skipping download"
-    echo "  To force update: rm /usr/local/bin/xboard-node && re-run this script"
+    echo "  /usr/local/bin/xboard-node already exists, skipping"
 fi
 
-# ---------- 3. 创建配置目录 ----------
-echo "[3/7] Creating config directory..."
+# ---------- 3. 下载 sync-nodes 二进制 ----------
+echo "[3/7] Downloading sync-nodes binary..."
+
+SYNC_VERSION=$(wget -qO- "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+
+if [ -z "$SYNC_VERSION" ]; then
+    echo "[WARN] Failed to fetch sync-nodes version, downloading from main branch"
+    wget -qO /usr/local/bin/sync-nodes "${REPO_RAW}/sync-nodes-linux-${ARCH_SUFFIX}"
+else
+    echo "  sync-nodes version: ${SYNC_VERSION}"
+    wget -qO /usr/local/bin/sync-nodes "https://github.com/fuckproxy/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
+fi
+chmod +x /usr/local/bin/sync-nodes
+
+# ---------- 4. 创建配置目录 ----------
+echo "[4/7] Creating config directory..."
 mkdir -p /etc/xboard-node
 
-# ---------- 4. 下载并安装 systemd 文件 ----------
-echo "[4/7] Installing systemd unit files..."
+# ---------- 5. 下载并安装 systemd 文件 ----------
+echo "[5/7] Installing systemd unit files..."
 wget -qO /etc/systemd/system/xboard-node@.service  "${REPO_RAW}/systemd/xboard-node@.service"
 wget -qO /etc/systemd/system/sync-nodes.service     "${REPO_RAW}/systemd/sync-nodes.service"
 wget -qO /etc/systemd/system/sync-nodes.timer       "${REPO_RAW}/systemd/sync-nodes.timer"
-
-# ---------- 5. 下载同步脚本 ----------
-echo "[5/7] Installing sync script..."
-wget -qO /usr/local/bin/sync-nodes.py "${REPO_RAW}/sync-nodes.py"
-chmod +x /usr/local/bin/sync-nodes.py
 
 # ---------- 6. 写入配置 ----------
 echo "[6/7] Writing config..."
@@ -128,15 +137,13 @@ echo ""
 if [ -n "$XBOARD_URL" ] && [ -n "$ADMIN_PATH" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ] && [ -n "$PANEL_TOKEN" ]; then
     echo "Config is ready. Quick verify:"
     echo ""
-    echo "  1. Test sync:  python3 /usr/local/bin/sync-nodes.py"
+    echo "  1. Test sync:  sync-nodes"
     echo "  2. Enable:     systemctl enable --now sync-nodes.timer"
 else
     echo "Next steps:"
     echo ""
-    echo "  1. Edit /etc/xboard-node/sync.yml and fill in:"
-    echo "     xboard_url, admin_path, admin_token, panel_token"
-    echo ""
-    echo "  2. Test sync:  python3 /usr/local/bin/sync-nodes.py"
+    echo "  1. Edit /etc/xboard-node/sync.yml"
+    echo "  2. Test sync:  sync-nodes"
     echo "  3. Enable:     systemctl enable --now sync-nodes.timer"
 fi
 echo ""
