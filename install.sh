@@ -5,7 +5,7 @@ set -e
 # Xboard Node Auto-Sync 一键安装脚本
 #
 # 用法:
-#   bash <(curl -sL https://raw.githubusercontent.com/githubactions/xnodeauto/main/install.sh) \
+#   bash <(curl -sL https://raw.githubusercontent.com/fuckproxy/xnodeauto/main/install.sh) \
 #     --url https://panel.example.com \
 #     --admin-path abc12345 \
 #     --admin-email admin@example.com \
@@ -13,7 +13,7 @@ set -e
 #     --panel-token node-comm-token
 # ============================================================
 
-REPO_RAW="https://raw.githubusercontent.com/githubactions/xnodeauto/main"
+REPO_RAW="https://raw.githubusercontent.com/fuckproxy/xnodeauto/main"
 
 # ---------- 解析参数 ----------
 XBOARD_URL=""

@@ -18,7 +18,7 @@ xboard-node@<node_id>.service → 读 /etc/xboard-node/<node_id>.yml
 ## 安装
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/githubactions/xnodeauto/main/install.sh) \
+bash <(curl -sL https://raw.githubusercontent.com/fuckproxy/xnodeauto/main/install.sh) \
   --url https://your-panel.com \
   --admin-path your-secure-path \
   --admin-email admin@example.com \
