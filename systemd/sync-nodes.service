@@ -1,0 +1,6 @@
+[Unit]
+Description=Sync Xboard nodes to local systemd instances
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/sync-nodes.py

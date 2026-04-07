@@ -1,0 +1,14 @@
+[Unit]
+Description=Xboard Node (instance %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/xboard-node -c /etc/xboard-node/%i.yml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

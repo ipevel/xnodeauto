@@ -1,0 +1,15 @@
+# Xboard Node Auto-Sync 配置
+# 复制到 /etc/xboard-node/sync.yml 后填入真实值
+
+# 面板地址
+xboard_url: "https://panel.example.com"
+
+# 面板后台 secure_path (URL 里 /api/v2/{这一段}/server/manage/...)
+admin_path: "abc12345"
+
+# 管理员账号 (用于自动登录获取 token,不会过期)
+admin_email: "admin@example.com"
+admin_password: "your-password"
+
+# 节点通信密钥 (面板后台 → 系统设置 → 节点通信密钥)
+panel_token: "node-comm-token"
