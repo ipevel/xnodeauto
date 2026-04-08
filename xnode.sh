@@ -1,14 +1,34 @@
 #!/bin/bash
 
+# ============================================================
+# Xboard Node Auto-Sync 管理脚本
+# ============================================================
+
+# 颜色定义
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
+blue='\033[0;34m'
+purple='\033[0;35m'
+cyan='\033[0;36m'
 plain='\033[0m'
 
+# 图标
+ICON_OK="✅"
+ICON_ERR="❌"
+ICON_WARN="⚠️"
+ICON_INFO="ℹ️"
+ICON_ROCKET="🚀"
+ICON_GEAR="⚙️"
+ICON_CHECK="✔"
+ICON_ARROW="→"
+ICON_NODE="🔷"
+
 cur_dir=$(pwd)
+alias_file="/etc/xboard-node/node_alias.yml"
 
 # check root
-[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
+[[ $EUID -ne 0 ]] && echo -e "${red}${ICON_ERR} 错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
 # check os
 if [[ -f /etc/redhat-release ]]; then
@@ -25,11 +45,104 @@ elif cat /proc/version | grep -Eqi "debian"; then
     release="debian"
 elif cat /proc/version | grep -Eqi "ubuntu"; then
     release="ubuntu"
-elif cat /proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux"; then
+elif cat //proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux"; then
     release="centos"
 else
-    echo -e "${red}未检测到系统版本！${plain}\n"
+    echo -e "${red}${ICON_ERR} 未检测到系统版本！${plain}\n"
 fi
+
+# ========== 别名管理 ==========
+
+# 加载节点别名
+load_aliases() {
+    declare -gA node_aliases
+    if [[ -f "$alias_file" ]]; then
+        while IFS=: read -r id alias; do
+            [[ -n "$id" && -n "$alias" ]] && node_aliases["$id"]="$alias"
+        done < <(grep -v '^#' "$alias_file" 2>/dev/null | grep ':')
+    fi
+}
+
+# 保存节点别名
+save_aliases() {
+    mkdir -p /etc/xboard-node
+    echo "# 节点别名配置" > "$alias_file"
+    echo "# 格式: 节点ID:别名" >> "$alias_file"
+    for id in "${!node_aliases[@]}"; do
+        echo "$id:${node_aliases[$id]}" >> "$alias_file"
+    done
+}
+
+# 获取节点别名
+get_alias() {
+    local node_id=$1
+    load_aliases
+    if [[ -n "${node_aliases[$node_id]}" ]]; then
+        echo "${node_aliases[$node_id]}"
+    else
+        # 尝试从面板获取节点名称
+        local name=$(get_node_name_from_panel "$node_id" 2>/dev/null)
+        if [[ -n "$name" ]]; then
+            echo "$name"
+        else
+            echo "节点$node_id"
+        fi
+    fi
+}
+
+# 从面板获取节点名称（需要改进）
+get_node_name_from_panel() {
+    local node_id=$1
+    # TODO: 通过 API 获取节点名称
+    echo ""
+}
+
+# 设置节点别名
+set_alias() {
+    local node_id=$1
+    local alias=$2
+    
+    load_aliases
+    node_aliases["$node_id"]="$alias"
+    save_aliases
+    echo -e "${green}${ICON_OK} 已设置节点 $node_id 别名为: $alias${plain}"
+}
+
+# 删除节点别名
+remove_alias() {
+    local node_id=$1
+    
+    load_aliases
+    if [[ -n "${node_aliases[$node_id]}" ]]; then
+        unset "node_aliases[$node_id]"
+        save_aliases
+        echo -e "${green}${ICON_OK} 已删除节点 $node_id 的别名${plain}"
+    fi
+}
+
+# ========== 进度条显示 ==========
+
+show_progress() {
+    local current=$1
+    local total=$2
+    local desc="$3"
+    local width=40
+    local percent=$((current * 100 / total))
+    local filled=$((current * width / total))
+    local empty=$((width - filled))
+    
+    printf "\r${cyan}  ${ICON_GEAR}${plain} ${desc} [${green}"
+    for ((i=0; i<filled; i++)); do printf "█"; done
+    printf "${plain}"
+    for ((i=0; i<empty; i++)); do printf "░"; done
+    printf "] %3d%%" "$percent"
+    
+    if [ $current -eq $total ]; then
+        echo ""
+    fi
+}
+
+# ========== 显示函数 ==========
 
 confirm() {
     if [[ $# > 1 ]]; then
@@ -62,31 +175,41 @@ install() {
 }
 
 update() {
-    echo -e "${green}开始更新 xboard-node...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新 xboard-node"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     /usr/local/bin/update-xboard-node.sh
-    echo -e "${green}更新完成！${plain}"
+    echo ""
+    echo -e "${green}${ICON_OK} 更新完成！${plain}"
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
 }
 
 update_script() {
-    echo -e "${green}开始更新 xnode 管理脚本...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本"
+    echo -e "${cyan}└──────────────────────────────┐${plain}"
+    echo ""
     
     # 备份当前版本
     if [ -f /usr/bin/xnode ]; then
         cp /usr/bin/xnode /usr/bin/xnode.bak
+        echo -e "  ${ICON_INFO} 已备份当前版本"
     fi
+    
+    echo -e "  ${ICON_ARROW} 下载新版本..."
     
     # 下载新版本
     wget -q -O /usr/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh
     
     if [ $? -eq 0 ] && [ -s /usr/bin/xnode ]; then
         chmod +x /usr/bin/xnode
-        echo -e "${green}管理脚本更新完成！${plain}"
+        echo -e "  ${ICON_OK} ${green}管理脚本更新完成！${plain}"
         rm -f /usr/bin/xnode.bak
     else
-        echo -e "${red}更新失败，恢复旧版本${plain}"
+        echo -e "  ${ICON_ERR} ${red}更新失败，恢复旧版本${plain}"
         [ -f /usr/bin/xnode.bak ] && mv /usr/bin/xnode.bak /usr/bin/xnode
     fi
     
@@ -96,7 +219,10 @@ update_script() {
 }
 
 update_sync_nodes() {
-    echo -e "${green}开始更新 sync-nodes...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新 sync-nodes"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
     # 检测架构
     ARCH=$(uname -m)
@@ -104,7 +230,7 @@ update_sync_nodes() {
         x86_64)  ARCH_SUFFIX="amd64" ;;
         aarch64) ARCH_SUFFIX="arm64" ;;
         *)
-            echo -e "${red}不支持的架构: $ARCH${plain}"
+            echo -e "${red}${ICON_ERR} 不支持的架构: $ARCH${plain}"
             if [[ $# == 0 ]]; then
                 before_show_menu
             fi
@@ -115,13 +241,13 @@ update_sync_nodes() {
     BINARY_NAME="sync-nodes-linux-${ARCH_SUFFIX}"
     DOWNLOAD_URL="https://github.com/ipevel/xnodeauto/releases/latest/download/${BINARY_NAME}"
     
-    echo -e "${yellow}架构: $ARCH ($ARCH_SUFFIX)${plain}"
-    echo -e "${yellow}下载地址: $DOWNLOAD_URL${plain}"
+    echo -e "  ${ICON_INFO} 架构: ${cyan}$ARCH ($ARCH_SUFFIX)${plain}"
+    echo -e "  ${ICON_ARROW} 下载中..."
     
     # 备份当前版本
     if [ -f /usr/local/bin/sync-nodes ]; then
         cp /usr/local/bin/sync-nodes /usr/local/bin/sync-nodes.bak
-        echo -e "${yellow}已备份旧版本${plain}"
+        echo -e "  ${ICON_INFO} 已备份旧版本"
     fi
     
     # 下载新版本
@@ -129,29 +255,29 @@ update_sync_nodes() {
     
     if [ $? -eq 0 ] && [ -s /usr/local/bin/sync-nodes ]; then
         chmod +x /usr/local/bin/sync-nodes
-        echo -e "${green}sync-nodes 更新完成！${plain}"
+        echo -e "  ${ICON_OK} ${green}sync-nodes 更新完成！${plain}"
         
         # 显示版本
-        if /usr/local/bin/sync-nodes -v 2>/dev/null; then
-            echo ""
-        fi
+        echo ""
+        /usr/local/bin/sync-nodes -v 2>/dev/null
+        echo ""
         
         rm -f /usr/local/bin/sync-nodes.bak
         
         # 询问是否重启同步服务
         if [[ x"${release}" == x"alpine" ]]; then
             if rc-service sync-nodes status 2>/dev/null | grep -q "started"; then
-                echo -e "${yellow}重启同步服务...${plain}"
+                echo -e "${yellow}  ${ICON_ARROW} 重启同步服务...${plain}"
                 rc-service sync-nodes restart
             fi
         else
             if systemctl is-active sync-nodes.service 2>/dev/null | grep -q "active"; then
-                echo -e "${yellow}重启同步服务...${plain}"
+                echo -e "${yellow}  ${ICON_ARROW} 重启同步服务...${plain}"
                 systemctl restart sync-nodes.service
             fi
         fi
     else
-        echo -e "${red}更新失败，恢复旧版本${plain}"
+        echo -e "${red}${ICON_ERR} 更新失败，恢复旧版本${plain}"
         [ -f /usr/local/bin/sync-nodes.bak ] && mv /usr/local/bin/sync-nodes.bak /usr/local/bin/sync-nodes
     fi
     
@@ -162,19 +288,23 @@ update_sync_nodes() {
 
 config() {
     if [[ ! -f /etc/xboard-node/sync.yml ]]; then
-        echo -e "${red}配置文件不存在，请先安装${plain}"
+        echo -e "${red}${ICON_ERR} 配置文件不存在，请先安装${plain}"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
         return 1
     fi
     
-    echo -e "${green}配置文件路径: /etc/xboard-node/sync.yml${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 编辑配置文件"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${ICON_INFO} 配置文件路径: ${cyan}/etc/xboard-node/sync.yml${plain}"
     echo ""
     vi /etc/xboard-node/sync.yml
     
     echo ""
-    echo -e "${yellow}配置已修改，是否重启同步服务？${plain}"
+    echo -e "${yellow}${ICON_WARN} 配置已修改，是否重启同步服务？${plain}"
     confirm "重启同步服务"
     if [[ $? == 0 ]]; then
         if [[ x"${release}" == x"alpine" ]]; then
@@ -182,7 +312,7 @@ config() {
         else
             systemctl restart sync-nodes.service
         fi
-        echo -e "${green}同步服务已重启${plain}"
+        echo -e "${green}${ICON_OK} 同步服务已重启${plain}"
     fi
     
     if [[ $# == 0 ]]; then
@@ -191,6 +321,12 @@ config() {
 }
 
 uninstall() {
+    echo -e "${red}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${red}│${plain} ${ICON_WARN} 卸载警告"
+    echo -e "${red}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${yellow}这将删除所有节点配置和服务${plain}"
+    echo ""
     confirm "确定要卸载 xnodeauto 吗?" "n"
     if [[ $? != 0 ]]; then
         if [[ $# == 0 ]]; then
@@ -199,479 +335,261 @@ uninstall() {
         return 0
     fi
     
-    echo -e "${yellow}正在卸载...${plain}"
+    echo ""
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 卸载中..."
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
-    # 停止并禁用所有节点服务
-    echo -e "${yellow}停止所有节点服务...${plain}"
-    if [[ x"${release}" == x"alpine" ]]; then
-        # Alpine: 停止所有 xboard-node 服务
-        for service in $(ls /etc/init.d/ 2>/dev/null | grep "^xboard-node@"); do
-            rc-service "$service" stop 2>/dev/null
-            rc-update del "$service" 2>/dev/null
-            rm -f "/etc/init.d/$service"
-        done
-        # 停止同步和更新服务
-        rc-service sync-nodes stop 2>/dev/null
-        rc-service update-xboard-node stop 2>/dev/null
-        rc-update del sync-nodes 2>/dev/null
-        rc-update del update-xboard-node 2>/dev/null
-        rm -f /etc/init.d/sync-nodes
-        rm -f /etc/init.d/update-xboard-node
-    else
-        # systemd: 停止所有 xboard-node 服务
-        for service in $(systemctl list-units --all --type=service 2>/dev/null | grep "xboard-node@" | awk '{print $1}'); do
-            systemctl stop "$service" 2>/dev/null
-            systemctl disable "$service" 2>/dev/null
-        done
-        # 删除所有 xboard-node 服务文件
-        rm -f /etc/systemd/system/xboard-node@*.service
-        # 停止同步和更新服务
-        systemctl stop sync-nodes.timer 2>/dev/null
-        systemctl stop sync-nodes.service 2>/dev/null
-        systemctl stop update-xboard-node.timer 2>/dev/null
-        systemctl disable sync-nodes.timer 2>/dev/null
-        systemctl disable sync-nodes.service 2>/dev/null
-        systemctl disable update-xboard-node.timer 2>/dev/null
-        # 删除服务文件
-        rm -f /etc/systemd/system/sync-nodes.service
-        rm -f /etc/systemd/system/sync-nodes.timer
-        rm -f /etc/systemd/system/update-xboard-node.service
-        rm -f /etc/systemd/system/update-xboard-node.timer
-        rm -f /etc/systemd/system/xboard-node@.service
-        # 重新加载 systemd
-        systemctl daemon-reload
-    fi
+    # 停止并禁用所有 xboard-node 服务
+    echo -e "  ${ICON_ARROW} 停止所有 xboard-node 服务..."
+    for svc in $(systemctl list-units --all --no-legend --plain "xboard-node@*.service" 2>/dev/null | awk '{print $1}'); do
+        systemctl stop "$svc" 2>/dev/null
+        systemctl disable "$svc" 2>/dev/null
+    done
+    echo -e "  ${ICON_OK} 服务已停止"
     
-    # 删除配置目录
-    echo -e "${yellow}删除配置文件...${plain}"
+    # 停止定时任务
+    echo -e "  ${ICON_ARROW} 停止定时任务..."
+    systemctl stop sync-nodes.timer 2>/dev/null
+    systemctl disable sync-nodes.timer 2>/dev/null
+    systemctl stop update-xboard-node.timer 2>/dev/null
+    systemctl disable update-xboard-node.timer 2>/dev/null
+    echo -e "  ${ICON_OK} 定时任务已停止"
+    
+    # 删除配置和程序文件
+    echo -e "  ${ICON_ARROW} 删除文件..."
     rm -rf /etc/xboard-node
-    
-    # 删除程序文件
-    echo -e "${yellow}删除程序文件...${plain}"
-    rm -f /usr/local/bin/sync-nodes
     rm -f /usr/local/bin/xboard-node
+    rm -f /usr/local/bin/sync-nodes
     rm -f /usr/local/bin/update-xboard-node.sh
     rm -f /usr/bin/xnode
+    rm -f /etc/systemd/system/xboard-node@.service
+    rm -f /etc/systemd/system/sync-nodes.service
+    rm -f /etc/systemd/system/sync-nodes.timer
+    rm -f /etc/systemd/system/update-xboard-node.service
+    rm -f /etc/systemd/system/update-xboard-node.timer
+    echo -e "  ${ICON_OK} 文件已删除"
     
-    # 删除日志文件
-    echo -e "${yellow}删除日志文件...${plain}"
-    rm -f /var/log/xboard-node-update.log
-    rm -f /var/log/sync-nodes.log
-    
-    # 删除备份文件
-    rm -f /usr/local/bin/sync-nodes.bak
-    rm -f /usr/local/bin/xboard-node.bak
-    rm -f /usr/bin/xnode.bak
+    # 重载 systemd
+    systemctl daemon-reload
     
     echo ""
-    echo -e "${green}卸载成功！${plain}"
-    echo -e "${green}已删除所有服务、配置和程序文件${plain}"
-    echo ""
-    
-    if [[ $# == 0 ]]; then
-        exit 0
-    fi
-}
-
-# 节点操作子菜单
-node_operation_menu() {
-    echo -e "
-${green}节点操作${plain}
-————————————————
-  ${green}1.${plain} 启动所有节点
-  ${green}2.${plain} 停止所有节点
-  ${green}3.${plain} 重启所有节点
-  ${green}4.${plain} 返回主菜单
-"
-    echo -n -e "${yellow}请选择 [1-4]: ${plain}"
-    read choice
-    
-    case "$choice" in
-        1) start_all ;;
-        2) stop_all ;;
-        3) restart_all ;;
-        4) show_menu ;;
-        *) echo -e "${red}无效选择${plain}" && node_operation_menu ;;
-    esac
-}
-
-# 更新子菜单
-update_menu() {
-    echo -e "
-${green}更新选项${plain}
-————————————————
-  ${green}1.${plain} 更新 xboard-node
-  ${green}2.${plain} 更新管理脚本
-  ${green}3.${plain} 更新 sync-nodes
-  ${green}4.${plain} 返回主菜单
-"
-    echo -n -e "${yellow}请选择 [1-4]: ${plain}"
-    read choice
-    
-    case "$choice" in
-        1) update ;;
-        2) update_script ;;
-        3) update_sync_nodes ;;
-        4) show_menu ;;
-        *) echo -e "${red}无效选择${plain}" && update_menu ;;
-    esac
-}
-
-# 节点管理子菜单
-node_manage_menu() {
-    echo -e "
-${green}节点管理${plain}
-————————————————
-  ${green}1.${plain} 列出所有节点
-  ${green}2.${plain} 手动添加节点
-  ${green}3.${plain} 手动删除节点
-  ${green}4.${plain} 返回主菜单
-"
-    echo -n -e "${yellow}请选择 [1-4]: ${plain}"
-    read choice
-    
-    case "$choice" in
-        1) list_nodes ;;
-        2) 
-            echo -n -e "${yellow}请输入节点ID: ${plain}"
-            read node_id
-            add_node "$node_id"
-            ;;
-        3) 
-            echo -n -e "${yellow}请输入节点ID: ${plain}"
-            read node_id
-            remove_node "$node_id"
-            ;;
-        4) show_menu ;;
-        *) echo -e "${red}无效选择${plain}" && node_manage_menu ;;
-    esac
-}
-
-# 日志查看子菜单
-log_menu() {
-    echo -e "
-${green}查看日志${plain}
-————————————————
-  ${green}1.${plain} 同步日志
-  ${green}2.${plain} 更新日志
-  ${green}3.${plain} 返回主菜单
-"
-    echo -n -e "${yellow}请选择 [1-3]: ${plain}"
-    read choice
-    
-    case "$choice" in
-        1) sync_log ;;
-        2) update_log ;;
-        3) show_menu ;;
-        *) echo -e "${red}无效选择${plain}" && log_menu ;;
-    esac
-}
-
-# 切换开机自启
-toggle_autostart() {
-    echo -e "${yellow}检查开机自启状态...${plain}"
-    
-    local is_enabled=false
-    if [[ x"${release}" == x"alpine" ]]; then
-        rc-update show default 2>/dev/null | grep -q "sync-nodes" && is_enabled=true
-    else
-        systemctl is-enabled sync-nodes.timer 2>/dev/null | grep -q "enabled" && is_enabled=true
-    fi
-    
-    if $is_enabled; then
-        echo -e "${yellow}当前状态: ${green}已开启${plain}"
-        confirm "是否关闭开机自启"
-        if [[ $? == 0 ]]; then
-            disable_autostart
-        fi
-    else
-        echo -e "${yellow}当前状态: ${red}已关闭${plain}"
-        confirm "是否开启开机自启"
-        if [[ $? == 0 ]]; then
-            enable_autostart
-        fi
-    fi
+    echo -e "${green}${ICON_OK} 卸载完成${plain}"
     
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
 }
 
-# 列出所有节点
-list_nodes() {
-    echo -e "${green}节点列表:${plain}"
-    echo ""
-    
-    # 读取手动配置的节点ID
-    local manual_ids=""
-    if [[ -f /etc/xboard-node/sync.yml ]]; then
-        manual_ids=$(grep -A 100 "manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^\s+-\s+[0-9]+" | awk '{print $2}' | tr '\n' ' ')
-    fi
-    
-    if [[ -n "$manual_ids" ]]; then
-        echo -e "${yellow}手动配置的节点:${plain} $manual_ids"
-    else
-        echo -e "${yellow}手动配置的节点:${plain} 无（使用IP自动匹配）"
-    fi
-    echo ""
-    
-    # 列出所有节点
-    local count=0
-    for node_id in $(get_node_ids); do
-        ((count++))
-        if check_node_status $node_id; then
-            echo -e "  ${green}●${plain} 节点 $node_id - 运行中"
-        else
-            echo -e "  ${red}○${plain} 节点 $node_id - 已停止"
-        fi
-    done
-    
-    if [[ $count -eq 0 ]]; then
-        echo -e "  ${yellow}无节点${plain}"
-    fi
-    echo ""
-    
-    if [[ $# == 0 ]]; then
-        before_show_menu
-    fi
-}
+# ========== 节点状态 ==========
 
-# 添加节点
-add_node() {
-    local node_id=$1
-    
-    if [[ -z "$node_id" ]]; then
-        echo -e "${red}错误: 请指定节点ID${plain}"
-        echo "用法: xnode add-node <节点ID>"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 1
-    fi
+status() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_NODE} 节点状态"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
     # 检查配置文件
     if [[ ! -f /etc/xboard-node/sync.yml ]]; then
-        echo -e "${red}错误: 配置文件不存在，请先运行安装${plain}"
+        echo -e "  ${ICON_ERR} ${red}未安装，请先运行安装脚本${plain}"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
         return 1
     fi
     
-    # 检查节点ID是否有效（必须是数字）
-    if ! [[ "$node_id" =~ ^[0-9]+$ ]]; then
-        echo -e "${red}错误: 节点ID必须是数字${plain}"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 1
-    fi
+    # 加载别名
+    load_aliases
     
-    # 检查是否已存在
-    if grep -q "^\s*-\s*${node_id}$" /etc/xboard-node/sync.yml 2>/dev/null; then
-        echo -e "${yellow}节点 $node_id 已在配置中${plain}"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 0
-    fi
+    # 获取所有节点服务
+    local nodes=$(systemctl list-units --all --no-legend --plain "xboard-node@*.service" 2>/dev/null | grep "xboard-node@")
     
-    # 添加节点ID到配置文件
-    echo -e "${yellow}添加节点 $node_id...${plain}"
-    
-    # 检查是否已有 manual_node_ids 配置
-    if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
-        # 在 manual_node_ids 下添加
-        sed -i "/^manual_node_ids:/a \ \ - ${node_id}" /etc/xboard-node/sync.yml
+    if [[ -z "$nodes" ]]; then
+        echo -e "  ${ICON_WARN} ${yellow}没有运行任何节点${plain}"
+        echo ""
+        echo -e "  ${ICON_INFO} 使用 ${cyan}xnode add-node <节点ID>${plain} 添加节点"
     else
-        # 添加 manual_node_ids 配置
-        echo -e "\nmanual_node_ids:\n  - ${node_id}" >> /etc/xboard-node/sync.yml
-    fi
-    
-    echo -e "${green}节点 $node_id 已添加到配置文件${plain}"
-    echo -e "${yellow}正在同步节点...${plain}"
-    
-    # 执行同步
-    if [[ x"${release}" == x"alpine" ]]; then
-        rc-service sync-nodes restart
-    else
-        systemctl restart sync-nodes.service
-    fi
-    
-    echo -e "${green}完成！${plain}"
-    
-    if [[ $# == 0 ]]; then
-        before_show_menu
-    fi
-}
-
-# 删除节点
-remove_node() {
-    local node_id=$1
-    
-    if [[ -z "$node_id" ]]; then
-        echo -e "${red}错误: 请指定节点ID${plain}"
-        echo "用法: xnode remove-node <节点ID>"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 1
-    fi
-    
-    echo -e "${yellow}删除节点 $node_id...${plain}"
-    
-    # 停止服务
-    if [[ x"${release}" == x"alpine" ]]; then
-        rc-service xboard-node@$node_id stop 2>/dev/null
-    else
-        systemctl stop xboard-node@$node_id 2>/dev/null
-    fi
-    
-    # 禁用服务
-    if [[ x"${release}" == x"alpine" ]]; then
-        rc-update del xboard-node@$node_id 2>/dev/null
-        rm -f /etc/init.d/xboard-node@$node_id
-    else
-        systemctl disable xboard-node@$node_id 2>/dev/null
-    fi
-    
-    # 删除配置文件
-    rm -f /etc/xboard-node/${node_id}.yml
-    
-    # 从 sync.yml 中移除节点ID
-    if [[ -f /etc/xboard-node/sync.yml ]]; then
-        sed -i "/^\s*-\s*${node_id}$/d" /etc/xboard-node/sync.yml
-    fi
-    
-    echo -e "${green}节点 $node_id 已完全删除${plain}"
-    
-    if [[ $# == 0 ]]; then
-        before_show_menu
-    fi
-}
-
-
-# 获取所有节点ID
-get_node_ids() {
-    if [[ -d /etc/xboard-node ]]; then
-        for f in /etc/xboard-node/*.yml; do
-            if [[ -f "$f" ]]; then
-                basename "$f" .yml
+        echo -e "  ${purple}节点ID  别名              状态      ${plain}"
+        echo -e "  ${cyan}──────  ────────────────  ────────${plain}"
+        
+        while IFS= read -r line; do
+            local unit=$(echo "$line" | awk '{print $1}')
+            local status=$(echo "$line" | awk '{print $3}')
+            
+            # 提取节点ID
+            local node_id=$(echo "$unit" | sed 's/xboard-node@\([0-9]*\)\.service/\1/')
+            
+            # 获取别名
+            local alias="${node_aliases[$node_id]:-节点$node_id}"
+            
+            # 格式化状态
+            if [[ "$status" == "active" ]]; then
+                status_text="${green}● 运行中${plain}"
+            elif [[ "$status" == "inactive" ]]; then
+                status_text="${red}○ 已停止${plain}"
+            elif [[ "$status" == "failed" ]]; then
+                status_text="${red}✕ 失败${plain}"
+            else
+                status_text="${yellow}○ $status${plain}"
             fi
-        done | grep -E '^[0-9]+$' | sort -n
+            
+            # 对齐输出
+            printf "  %-6s  %-16s  %b\n" "$node_id" "$alias" "$status_text"
+        done <<< "$nodes"
+    fi
+    
+    echo ""
+    echo -e "${cyan}────────────────────────────────────────────────────────────${plain}"
+    echo ""
+    
+    # 定时任务状态
+    echo -e "  ${purple}定时任务状态${plain}"
+    echo -e "  ${cyan}────────────────${plain}"
+    
+    local sync_timer=$(systemctl is-enabled sync-nodes.timer 2>/dev/null)
+    local sync_active=$(systemctl is-active sync-nodes.timer 2>/dev/null)
+    
+    if [[ "$sync_timer" == "enabled" ]]; then
+        echo -e "  节点同步: ${green}已启用${plain} ($sync_active)"
+    else
+        echo -e "  节点同步: ${yellow}未启用${plain}"
+    fi
+    
+    local update_timer=$(systemctl is-enabled update-xboard-node.timer 2>/dev/null)
+    local update_active=$(systemctl is-active update-xboard-node.timer 2>/dev/null)
+    
+    if [[ "$update_timer" == "enabled" ]]; then
+        echo -e "  自动更新: ${green}已启用${plain} ($update_active)"
+    else
+        echo -e "  自动更新: ${yellow}未启用${plain}"
+    fi
+    
+    echo ""
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
     fi
 }
 
-# 检查节点状态
-check_node_status() {
-    local node_id=$1
-    if [[ x"${release}" == x"alpine" ]]; then
-        if rc-service xboard-node@$node_id status 2>/dev/null | grep -q "started"; then
-            return 0
-        else
-            return 1
-        fi
-    else
-        local status=$(systemctl is-active xboard-node@$node_id 2>/dev/null)
-        if [[ "$status" == "active" ]]; then
-            return 0
-        else
-            return 1
-        fi
-    fi
-}
+# ========== 节点操作 ==========
 
 start_all() {
-    echo -e "${green}启动所有节点...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 启动所有节点"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
-    local nodes=$(get_node_ids)
-    if [[ -z "$nodes" ]]; then
-        echo -e "${yellow}没有找到节点配置${plain}"
-        echo -e "${yellow}请先运行同步: xnode sync${plain}"
-        if [[ $# == 0 ]]; then
-            before_show_menu
+    # 读取 sync.yml 获取节点列表
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        # 从配置文件读取 manual_node_ids
+        local node_ids=$(grep -A 100 "manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
+        
+        if [[ -z "$node_ids" ]]; then
+            # 如果没有 manual_node_ids，尝试从配置文件中查找
+            node_ids=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v sync.yml | xargs -I {} basename {} .yml)
         fi
-        return
+        
+        if [[ -z "$node_ids" ]]; then
+            echo -e "  ${ICON_WARN} ${yellow}没有配置任何节点${plain}"
+            echo ""
+            echo -e "  ${ICON_INFO} 使用 ${cyan}xnode add-node <节点ID>${plain} 添加节点"
+        else
+            for id in $node_ids; do
+                local alias=$(get_alias "$id")
+                echo -e "  ${ICON_ARROW} 启动节点 $id ($alias)..."
+                systemctl enable xboard-node@$id.service 2>/dev/null
+                systemctl start xboard-node@$id.service 2>/dev/null
+                
+                if systemctl is-active xboard-node@$id.service > /dev/null 2>&1; then
+                    echo -e "  ${ICON_OK} ${green}节点 $id 已启动${plain}"
+                else
+                    echo -e "  ${ICON_ERR} ${red}节点 $id 启动失败${plain}"
+                fi
+            done
+        fi
+    else
+        echo -e "  ${ICON_ERR} ${red}配置文件不存在${plain}"
     fi
     
-    for node_id in $nodes; do
-        if [[ x"${release}" == x"alpine" ]]; then
-            rc-service xboard-node@$node_id start
-        else
-            systemctl start xboard-node@$node_id
-        fi
-        echo -e "  节点 ${node_id}: ${green}已启动${plain}"
-    done
-    
-    echo -e "${green}所有节点已启动${plain}"
-    
+    echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
 }
 
 stop_all() {
-    echo -e "${yellow}停止所有节点...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 停止所有节点"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
-    local nodes=$(get_node_ids)
+    local nodes=$(systemctl list-units --all --no-legend --plain "xboard-node@*.service" 2>/dev/null | grep "xboard-node@")
+    
     if [[ -z "$nodes" ]]; then
-        echo -e "${yellow}没有找到运行中的节点${plain}"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return
+        echo -e "  ${ICON_WARN} ${yellow}没有运行任何节点${plain}"
+    else
+        while IFS= read -r line; do
+            local unit=$(echo "$line" | awk '{print $1}')
+            local node_id=$(echo "$unit" | sed 's/xboard-node@\([0-9]*\)\.service/\1/')
+            local alias=$(get_alias "$node_id")
+            
+            echo -e "  ${ICON_ARROW} 停止节点 $node_id ($alias)..."
+            systemctl stop "$unit" 2>/dev/null
+            systemctl disable "$unit" 2>/dev/null
+            echo -e "  ${ICON_OK} ${green}节点 $node_id 已停止${plain}"
+        done <<< "$nodes"
     fi
     
-    for node_id in $nodes; do
-        if [[ x"${release}" == x"alpine" ]]; then
-            rc-service xboard-node@$node_id stop
-        else
-            systemctl stop xboard-node@$node_id
-        fi
-        echo -e "  节点 ${node_id}: ${red}已停止${plain}"
-    done
-    
-    echo -e "${green}所有节点已停止${plain}"
-    
+    echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
 }
 
 restart_all() {
-    echo -e "${yellow}重启所有节点...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 重启所有节点"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
-    local nodes=$(get_node_ids)
+    local nodes=$(systemctl list-units --all --no-legend --plain "xboard-node@*.service" 2>/dev/null | grep "xboard-node@")
+    
     if [[ -z "$nodes" ]]; then
-        echo -e "${yellow}没有找到节点配置${plain}"
-        echo -e "${yellow}请先运行同步: xnode sync${plain}"
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return
+        echo -e "  ${ICON_WARN} ${yellow}没有运行任何节点${plain}"
+    else
+        while IFS= read -r line; do
+            local unit=$(echo "$line" | awk '{print $1}')
+            local node_id=$(echo "$unit" | sed 's/xboard-node@\([0-9]*\)\.service/\1/')
+            local alias=$(get_alias "$node_id")
+            
+            echo -e "  ${ICON_ARROW} 重启节点 $node_id ($alias)..."
+            systemctl restart "$unit" 2>/dev/null
+            
+            if systemctl is-active "$unit" > /dev/null 2>&1; then
+                echo -e "  ${ICON_OK} ${green}节点 $node_id 已重启${plain}"
+            else
+                echo -e "  ${ICON_ERR} ${red}节点 $node_id 重启失败${plain}"
+            fi
+        done <<< "$nodes"
     fi
     
-    for node_id in $nodes; do
-        if [[ x"${release}" == x"alpine" ]]; then
-            rc-service xboard-node@$node_id restart
-        else
-            systemctl restart xboard-node@$node_id
-        fi
-        echo -e "  节点 ${node_id}: ${green}已重启${plain}"
-    done
-    
-    echo -e "${green}所有节点已重启${plain}"
-    
+    echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
 }
 
+# ========== 同步节点 ==========
+
 sync() {
-    echo -e "${green}开始同步节点...${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 同步节点"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
     
     if [[ ! -f /usr/local/bin/sync-nodes ]]; then
-        echo -e "${red}sync-nodes 未安装，请先安装${plain}"
+        echo -e "${red}${ICON_ERR} sync-nodes 未安装${plain}"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
@@ -680,68 +598,74 @@ sync() {
     
     /usr/local/bin/sync-nodes
     
+    echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
 }
 
-status() {
-    echo -e "${green}====== 节点状态 ======${plain}"
+# ========== 节点管理 ==========
+
+list_nodes() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_NODE} 节点列表"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
-    # 检查同步服务状态
-    echo -e "${yellow}同步服务:${plain}"
-    if [[ x"${release}" == x"alpine" ]]; then
-        if rc-service sync-nodes status 2>/dev/null | grep -q "started"; then
-            echo -e "  状态: ${green}运行中${plain}"
-        else
-            echo -e "  状态: ${red}未运行${plain}"
-        fi
-    else
-        local sync_status=$(systemctl is-active sync-nodes.timer 2>/dev/null)
-        if [[ "$sync_status" == "active" ]]; then
-            echo -e "  定时器: ${green}运行中${plain}"
-        else
-            echo -e "  定时器: ${red}未运行${plain}"
-        fi
-    fi
+    # 加载别名
+    load_aliases
     
-    echo ""
-    
-    # 检查自动更新服务状态
-    echo -e "${yellow}自动更新:${plain}"
-    if [[ x"${release}" == x"alpine" ]]; then
-        if rc-service update-xboard-node status 2>/dev/null | grep -q "started"; then
-            echo -e "  状态: ${green}运行中${plain}"
-        else
-            echo -e "  状态: ${red}未运行${plain}"
-        fi
-    else
-        local update_status=$(systemctl is-active update-xboard-node.timer 2>/dev/null)
-        if [[ "$update_status" == "active" ]]; then
-            echo -e "  定时器: ${green}运行中${plain}"
-        else
-            echo -e "  定时器: ${red}未运行${plain}"
-        fi
-    fi
-    
-    echo ""
-    
-    # 检查所有节点状态
-    echo -e "${yellow}节点列表:${plain}"
-    local nodes=$(get_node_ids)
-    if [[ -z "$nodes" ]]; then
-        echo -e "  ${red}没有找到节点${plain}"
-    else
-        for node_id in $nodes; do
-            if check_node_status $node_id; then
-                echo -e "  节点 ${node_id}: ${green}运行中${plain}"
-            else
-                echo -e "  节点 ${node_id}: ${red}已停止${plain}"
+    # 读取配置的节点
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        local node_ids=$(grep -A 100 "manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
+        
+        if [[ -z "$node_ids" ]]; then
+            echo -e "  ${ICON_INFO} 使用自动同步模式（未配置手动节点）"
+            echo ""
+            
+            # 显示配置文件中的节点
+            local config_nodes=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v sync.yml)
+            if [[ -n "$config_nodes" ]]; then
+                echo -e "  ${purple}节点ID  别名              状态      ${plain}"
+                echo -e "  ${cyan}──────  ────────────────  ────────${plain}"
+                
+                for config_file in $config_nodes; do
+                    local node_id=$(basename "$config_file" .yml)
+                    local alias="${node_aliases[$node_id]:-节点$node_id}"
+                    local status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                    
+                    if [[ "$status" == "active" ]]; then
+                        status_text="${green}● 运行中${plain}"
+                    else
+                        status_text="${red}○ $status${plain}"
+                    fi
+                    
+                    printf "  %-6s  %-16s  %b\n" "$node_id" "$alias" "$status_text"
+                done
             fi
-        done
+        else
+            echo -e "  ${purple}节点ID  别名              状态      ${plain}"
+            echo -e "  ${cyan}──────  ────────────────  ────────${plain}"
+            
+            for id in $node_ids; do
+                local alias="${node_aliases[$id]:-节点$id}"
+                local status=$(systemctl is-active xboard-node@$id.service 2>/dev/null || echo "inactive")
+                
+                if [[ "$status" == "active" ]]; then
+                    status_text="${green}● 运行中${plain}"
+                else
+                    status_text="${red}○ $status${plain}"
+                fi
+                
+                printf "  %-6s  %-16s  %b\n" "$id" "$alias" "$status_text"
+            done
+        fi
+    else
+        echo -e "  ${ICON_ERR} ${red}配置文件不存在${plain}"
     fi
     
+    echo ""
+    echo -e "  ${ICON_INFO} 设置别名: ${cyan}xnode set-alias <节点ID> <别名>${plain}"
     echo ""
     
     if [[ $# == 0 ]]; then
@@ -749,14 +673,141 @@ status() {
     fi
 }
 
-sync_log() {
-    echo -e "${green}同步日志 (按 Ctrl+C 退出):${plain}"
+add_node() {
+    local node_id=$1
+    local alias=$2
+    
+    if [[ -z "$node_id" ]]; then
+        echo -e "${red}${ICON_ERR} 用法: xnode add-node <节点ID> [别名]${plain}"
+        return 1
+    fi
+    
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 添加节点 $node_id"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    
+    # 检查是否已在配置中
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        if grep -q "manual_node_ids:" /etc/xboard-node/sync.yml; then
+            if grep -E "  - $node_id$" /etc/xboard-node/sync.yml > /dev/null; then
+                echo -e "${yellow}${ICON_WARN} 节点 $node_id 已在配置中${plain}"
+                
+                # 如果提供了别名，更新别名
+                if [[ -n "$alias" ]]; then
+                    set_alias "$node_id" "$alias"
+                fi
+                
+                if [[ $# -le 2 ]]; then
+                    before_show_menu
+                fi
+                return 0
+            fi
+        fi
+    fi
+    
+    # 添加到配置文件
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        if grep -q "manual_node_ids:" /etc/xboard-node/sync.yml; then
+            # 已有 manual_node_ids，添加到列表
+            sed -i "/manual_node_ids:/a \ \ - $node_id" /etc/xboard-node/sync.yml
+        else
+            # 没有 manual_node_ids，添加到文件末尾
+            echo "" >> /etc/xboard-node/sync.yml
+            echo "# 手动指定的节点ID" >> /etc/xboard-node/sync.yml
+            echo "manual_node_ids:" >> /etc/xboard-node/sync.yml
+            echo "  - $node_id" >> /etc/xboard-node/sync.yml
+        fi
+        echo -e "${green}${ICON_OK} 已添加节点 $node_id 到配置${plain}"
+    else
+        echo -e "${red}${ICON_ERR} 配置文件不存在，请先安装${plain}"
+        return 1
+    fi
+    
+    # 设置别名
+    if [[ -n "$alias" ]]; then
+        set_alias "$node_id" "$alias"
+    fi
+    
+    # 执行同步
+    echo ""
+    echo -e "${ICON_ARROW} 执行同步..."
+    /usr/local/bin/sync-nodes
+    
+    echo ""
+    if [[ $# -le 2 ]]; then
+        before_show_menu
+    fi
+}
+
+remove_node() {
+    local node_id=$1
+    
+    if [[ -z "$node_id" ]]; then
+        echo -e "${red}${ICON_ERR} 用法: xnode remove-node <节点ID>${plain}"
+        return 1
+    fi
+    
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 删除节点 $node_id"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    
+    local alias=$(get_alias "$node_id")
+    
+    # 停止并禁用服务
+    echo -e "  ${ICON_ARROW} 停止节点 $node_id ($alias)..."
+    systemctl stop xboard-node@$node_id.service 2>/dev/null
+    systemctl disable xboard-node@$node_id.service 2>/dev/null
+    echo -e "  ${ICON_OK} 服务已停止"
+    
+    # 删除配置文件
+    if [[ -f /etc/xboard-node/$node_id.yml ]]; then
+        rm -f /etc/xboard-node/$node_id.yml
+        echo -e "  ${ICON_OK} 配置文件已删除"
+    fi
+    
+    # 从 sync.yml 移除
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        sed -i "/^  - $node_id$/d" /etc/xboard-node/sync.yml
+        echo -e "  ${ICON_OK} 已从配置中移除"
+    fi
+    
+    # 删除别名
+    remove_alias "$node_id"
+    
+    echo ""
+    echo -e "${green}${ICON_OK} 节点 $node_id 已完全删除${plain}"
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
+set_node_alias() {
+    local node_id=$1
+    local alias=$2
+    
+    if [[ -z "$node_id" || -z "$alias" ]]; then
+        echo -e "${red}${ICON_ERR} 用法: xnode set-alias <节点ID> <别名>${plain}"
+        return 1
+    fi
+    
+    set_alias "$node_id" "$alias"
+}
+
+# ========== 日志 ==========
+
+show_sync_log() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_INFO} 同步日志"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
     if [[ x"${release}" == x"alpine" ]]; then
-        cat /var/log/sync-nodes.log 2>/dev/null || echo -e "${red}日志文件不存在${plain}"
+        journalctl -u sync-nodes.service -n 50 --no-pager
     else
-        journalctl -u sync-nodes.service -f --no-pager
+        journalctl -u sync-nodes.service -n 50 --no-pager
     fi
     
     if [[ $# == 0 ]]; then
@@ -764,14 +815,16 @@ sync_log() {
     fi
 }
 
-update_log() {
-    echo -e "${green}更新日志:${plain}"
+show_update_log() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_INFO} 更新日志"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
     if [[ -f /var/log/xboard-node-update.log ]]; then
-        tail -100 /var/log/xboard-node-update.log
+        tail -n 50 /var/log/xboard-node-update.log
     else
-        echo -e "${red}日志文件不存在${plain}"
+        echo -e "  ${ICON_WARN} ${yellow}日志文件不存在${plain}"
     fi
     
     if [[ $# == 0 ]]; then
@@ -779,69 +832,106 @@ update_log() {
     fi
 }
 
-enable_autostart() {
-    echo -e "${green}设置开机自启...${plain}"
-    
-    if [[ x"${release}" == x"alpine" ]]; then
-        rc-update add sync-nodes default
-        rc-update add update-xboard-node default
-    else
-        systemctl enable sync-nodes.timer
-        systemctl enable update-xboard-node.timer
-        systemctl start sync-nodes.timer
-        systemctl start update-xboard-node.timer
-    fi
-    
-    echo -e "${green}已设置开机自启${plain}"
-    echo -e "${green}已启动定时服务${plain}"
-    
-    if [[ $# == 0 ]]; then
-        before_show_menu
-    fi
-}
+# ========== 开机自启 ==========
 
-disable_autostart() {
-    echo -e "${yellow}取消开机自启...${plain}"
-    
-    if [[ x"${release}" == x"alpine" ]]; then
-        rc-update del sync-nodes default
-        rc-update del update-xboard-node default
-    else
-        systemctl disable sync-nodes.timer
-        systemctl disable update-xboard-node.timer
-        systemctl stop sync-nodes.timer
-        systemctl stop update-xboard-node.timer
-    fi
-    
-    echo -e "${green}已取消开机自启${plain}"
-    
-    if [[ $# == 0 ]]; then
-        before_show_menu
-    fi
-}
-
-version() {
-    echo -e "${green}版本信息:${plain}"
+toggle_autostart() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 开机自启管理"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
+    # 检查当前状态
+    local sync_enabled=$(systemctl is-enabled sync-nodes.timer 2>/dev/null)
+    local update_enabled=$(systemctl is-enabled update-xboard-node.timer 2>/dev/null)
+    
+    echo -e "  ${purple}当前状态${plain}"
+    echo -e "  ${cyan}────────────────${plain}"
+    
+    if [[ "$sync_enabled" == "enabled" ]]; then
+        echo -e "  节点同步: ${green}已启用${plain}"
+    else
+        echo -e "  节点同步: ${yellow}未启用${plain}"
+    fi
+    
+    if [[ "$update_enabled" == "enabled" ]]; then
+        echo -e "  自动更新: ${green}已启用${plain}"
+    else
+        echo -e "  自动更新: ${yellow}未启用${plain}"
+    fi
+    
+    echo ""
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${yellow}请选择操作${plain}"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${green}[1]${plain} 启用所有开机自启"
+    echo -e "  ${green}[2]${plain} 禁用所有开机自启"
+    echo -e "  ${green}[3]${plain} 仅启用节点同步"
+    echo -e "  ${green}[4]${plain} 仅启用自动更新"
+    echo -e "  ${green}[0]${plain} 返回"
+    echo ""
+    read -rp "  请选择 [0-4]: " choice
+    
+    case "$choice" in
+        1)
+            systemctl enable sync-nodes.timer
+            systemctl enable update-xboard-node.timer
+            echo -e "\n${green}${ICON_OK} 已启用所有开机自启${plain}"
+            ;;
+        2)
+            systemctl disable sync-nodes.timer
+            systemctl disable update-xboard-node.timer
+            echo -e "\n${green}${ICON_OK} 已禁用所有开机自启${plain}"
+            ;;
+        3)
+            systemctl enable sync-nodes.timer
+            echo -e "\n${green}${ICON_OK} 已启用节点同步开机自启${plain}"
+            ;;
+        4)
+            systemctl enable update-xboard-node.timer
+            echo -e "\n${green}${ICON_OK} 已启用自动更新开机自启${plain}"
+            ;;
+        0)
+            ;;
+        *)
+            echo -e "\n${red}${ICON_ERR} 无效选择${plain}"
+            ;;
+    esac
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
+# ========== 版本信息 ==========
+
+show_version() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_INFO} 版本信息"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    
+    echo -e "  ${purple}组件          版本        状态    ${plain}"
+    echo -e "  ${cyan}──────────────────────────────────${plain}"
+    
+    # xboard-node
     if [[ -f /usr/local/bin/xboard-node ]]; then
-        echo -e "  xboard-node: $($(/usr/local/bin/xboard-node -v 2>/dev/null || echo "未知"))"
+        local xb_ver=$(/usr/local/bin/xboard-node -v 2>&1 | head -1 || echo "未知")
+        echo -e "  xboard-node   ${green}$xb_ver${plain}    ${ICON_OK}"
     else
-        echo -e "  xboard-node: ${red}未安装${plain}"
+        echo -e "  xboard-node   ${red}未安装${plain}      ${ICON_ERR}"
     fi
     
+    # sync-nodes
     if [[ -f /usr/local/bin/sync-nodes ]]; then
-        SYNC_VERSION=$(/usr/local/bin/sync-nodes -v 2>/dev/null || echo "未知")
-        echo -e "  sync-nodes: ${green}${SYNC_VERSION}${plain}"
+        local sync_ver=$(/usr/local/bin/sync-nodes -v 2>&1 | head -1 || echo "未知")
+        echo -e "  sync-nodes    ${green}$sync_ver${plain}    ${ICON_OK}"
     else
-        echo -e "  sync-nodes: ${red}未安装${plain}"
+        echo -e "  sync-nodes    ${red}未安装${plain}      ${ICON_ERR}"
     fi
     
-    if [[ -f /usr/local/bin/update-xboard-node.sh ]]; then
-        echo -e "  update-script: ${green}已安装${plain}"
-    else
-        echo -e "  update-script: ${red}未安装${plain}"
-    fi
+    # 管理脚本
+    echo -e "  xnode         ${green}v1.2.1${plain}        ${ICON_OK}"
     
     echo ""
     
@@ -850,128 +940,217 @@ version() {
     fi
 }
 
-show_usage() {
-    echo "xnode 管理脚本使用方法: "
-    echo "------------------------------------------"
-    echo "xnode              - 显示管理菜单"
-    echo "xnode status       - 查看节点状态"
-    echo "xnode start        - 启动所有节点"
-    echo "xnode stop         - 停止所有节点"
-    echo "xnode restart      - 重启所有节点"
-    echo "xnode sync         - 手动同步节点"
-    echo "xnode update       - 更新 xboard-node"
-    echo "xnode update-script- 更新管理脚本"
-    echo "xnode update-sync  - 更新 sync-nodes"
-    echo "xnode list-nodes   - 列出所有节点"
-    echo "xnode add-node <ID>- 手动添加节点"
-    echo "xnode remove-node <ID> - 手动删除节点"
-    echo "xnode config       - 修改配置文件"
-    echo "xnode log          - 查看日志"
-    echo "xnode autostart    - 切换开机自启"
-    echo "xnode version      - 查看版本信息"
-    echo "xnode install      - 安装/重新安装"
-    echo "xnode uninstall    - 卸载"
-    echo "------------------------------------------"
+# ========== 子菜单 ==========
+
+show_node_menu() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_NODE} 节点操作"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${green}[1]${plain} 启动所有节点"
+    echo -e "  ${green}[2]${plain} 停止所有节点"
+    echo -e "  ${green}[3]${plain} 重启所有节点"
+    echo -e "  ${green}[0]${plain} 返回主菜单"
+    echo ""
+    read -rp "  请选择 [0-3]: " choice
+    
+    case "$choice" in
+        1) start_all ;;
+        2) stop_all ;;
+        3) restart_all ;;
+        0) show_menu ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择${plain}" && show_node_menu ;;
+    esac
 }
+
+show_update_menu() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新选项"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${green}[1]${plain} 更新 xboard-node"
+    echo -e "  ${green}[2]${plain} 更新管理脚本"
+    echo -e "  ${green}[3]${plain} 更新 sync-nodes"
+    echo -e "  ${green}[0]${plain} 返回主菜单"
+    echo ""
+    read -rp "  请选择 [0-3]: " choice
+    
+    case "$choice" in
+        1) update ;;
+        2) update_script ;;
+        3) update_sync_nodes ;;
+        0) show_menu ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择${plain}" && show_update_menu ;;
+    esac
+}
+
+show_log_menu() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_INFO} 查看日志"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${green}[1]${plain} 查看同步日志"
+    echo -e "  ${green}[2]${plain} 查看更新日志"
+    echo -e "  ${green}[0]${plain} 返回主菜单"
+    echo ""
+    read -rp "  请选择 [0-2]: " choice
+    
+    case "$choice" in
+        1) show_sync_log ;;
+        2) show_update_log ;;
+        0) show_menu ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择${plain}" && show_log_menu ;;
+    esac
+}
+
+show_manage_menu() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_NODE} 节点管理"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${green}[1]${plain} 列出所有节点"
+    echo -e "  ${green}[2]${plain} 添加节点"
+    echo -e "  ${green}[3]${plain} 删除节点"
+    echo -e "  ${green}[4]${plain} 设置节点别名"
+    echo -e "  ${green}[0]${plain} 返回主菜单"
+    echo ""
+    read -rp "  请选择 [0-4]: " choice
+    
+    case "$choice" in
+        1) list_nodes ;;
+        2)
+            read -rp "  请输入节点ID: " node_id
+            read -rp "  请输入节点别名（可选）: " alias
+            add_node "$node_id" "$alias"
+            ;;
+        3)
+            read -rp "  请输入节点ID: " node_id
+            remove_node "$node_id"
+            ;;
+        4)
+            read -rp "  请输入节点ID: " node_id
+            read -rp "  请输入节点别名: " alias
+            set_node_alias "$node_id" "$alias"
+            ;;
+        0) show_menu ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择${plain}" && show_manage_menu ;;
+    esac
+}
+
+# ========== 主菜单 ==========
 
 show_menu() {
-    echo -e "
-  ${green}xnodeauto 管理脚本${plain}
---- https://github.com/ipevel/xnodeauto ---
-  ${green}0.${plain} 修改配置文件
-————————————————
-  ${green}1.${plain} 查看节点状态
-  ${green}2.${plain} 节点操作（启动/停止/重启）
-  ${green}3.${plain} 手动同步节点
-————————————————
-  ${green}4.${plain} 更新（xboard-node/脚本/sync-nodes）
-————————————————
-  ${green}5.${plain} 节点管理（列表/添加/删除）
-————————————————
-  ${green}6.${plain} 查看日志（同步/更新）
-————————————————
-  ${green}7.${plain} 开机自启（切换）
-————————————————
-  ${green}8.${plain} 查看版本信息
-  ${green}9.${plain} 安装/重新安装
-  ${green}10.${plain} 卸载
-  ${green}11.${plain} 退出脚本
-"
+    echo -e "${cyan}"
+    cat << 'EOF'
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║              ____  __                  __     __             ║
+║             / __ \/ /_  ___  ____  ____/ /__  / /_           ║
+║            / /_/ / __ \/ _ \/ __ \/ __  / _ \/ __/           ║
+║           / ____/ / / /  __/ / / / /_/ /  __/ /_             ║
+║          /_/   /_/ /_/\___/_/ /_/\__,_/\___/\__/             ║
+║                                                              ║
+║                  Node Auto-Sync 管理菜单                     ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${plain}"
     
-    # 显示状态
-    echo -e "${yellow}当前状态:${plain}"
-    
-    # 检查同步服务
-    if [[ x"${release}" == x"alpine" ]]; then
-        if rc-service sync-nodes status 2>/dev/null | grep -q "started"; then
-            echo -e "  同步服务: ${green}运行中${plain}"
-        else
-            echo -e "  同步服务: ${red}未运行${plain}"
-        fi
-    else
-        local sync_status=$(systemctl is-active sync-nodes.timer 2>/dev/null)
-        if [[ "$sync_status" == "active" ]]; then
-            echo -e "  同步服务: ${green}运行中${plain}"
-        else
-            echo -e "  同步服务: ${red}未运行${plain}"
-        fi
-    fi
-    
-    # 统计节点数量
-    local running=0
-    local stopped=0
-    for node_id in $(get_node_ids); do
-        if check_node_status $node_id; then
-            ((running++))
-        else
-            ((stopped++))
-        fi
-    done
-    
-    echo -e "  节点: ${green}${running} 运行中${plain}, ${red}${stopped} 已停止${plain}"
+    echo -e "  ${green}[0]${plain} 修改配置文件"
     echo ""
+    echo -e "  ${green}[1]${plain} 查看节点状态"
+    echo -e "  ${green}[2]${plain} 节点操作（启动/停止/重启）"
+    echo -e "  ${green}[3]${plain} 手动同步节点"
+    echo ""
+    echo -e "  ${green}[4]${plain} 更新（xboard-node/脚本/sync-nodes）"
+    echo ""
+    echo -e "  ${green}[5]${plain} 节点管理（列表/添加/删除/别名）"
+    echo ""
+    echo -e "  ${green}[6]${plain} 查看日志（同步/更新）"
+    echo ""
+    echo -e "  ${green}[7]${plain} 开机自启（切换）"
+    echo -e "  ${green}[8]${plain} 查看版本信息"
+    echo ""
+    echo -e "  ${green}[9]${plain} 安装/重新安装"
+    echo -e "  ${green}[10]${plain} 卸载"
+    echo ""
+    echo -e "  ${green}[11]${plain} 退出脚本"
+    echo ""
+    echo -e "${cyan}────────────────────────────────────────────────────────────${plain}"
+    read -rp "  请选择 [0-11]: " choice
     
-    echo -n -e "${yellow}请输入选择 [0-11]: ${plain}"
-    read num
-
-    case "${num}" in
+    case "$choice" in
         0) config ;;
         1) status ;;
-        2) node_operation_menu ;;
+        2) show_node_menu ;;
         3) sync ;;
-        4) update_menu ;;
-        5) node_manage_menu ;;
-        6) log_menu ;;
+        4) show_update_menu ;;
+        5) show_manage_menu ;;
+        6) show_log_menu ;;
         7) toggle_autostart ;;
-        8) version ;;
+        8) show_version ;;
         9) install ;;
         10) uninstall ;;
-        11) exit 0 ;;
-        *) echo -e "${red}请输入正确的数字 [0-11]${plain}" && show_menu ;;
+        11) echo -e "\n${green}再见！${plain}\n" && exit 0 ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择，请重新输入${plain}" && sleep 1 && show_menu ;;
     esac
 }
 
-if [[ $# > 0 ]]; then
-    case $1 in
-        "start") start_all 0 ;;
-        "stop") stop_all 0 ;;
-        "restart") restart_all 0 ;;
-        "status") status 0 ;;
-        "sync") sync 0 ;;
-        "update") update 0 ;;
-        "update-script") update_script 0 ;;
-        "update-sync") update_sync_nodes 0 ;;
-        "list-nodes") list_nodes 0 ;;
-        "add-node") add_node $2 ;;
-        "remove-node") remove_node $2 ;;
-        "config") config 0 ;;
-        "log") sync_log 0 ;;
-        "autostart") toggle_autostart ;;
-        "version") version 0 ;;
-        "install") install 0 ;;
-        "uninstall") uninstall 0 ;;
-        *) show_usage ;;
-    esac
-else
-    show_menu
-fi
+# ========== 命令行参数 ==========
+
+case "$1" in
+    status)
+        status 1
+        ;;
+    start)
+        start_all 1
+        ;;
+    stop)
+        stop_all 1
+        ;;
+    restart)
+        restart_all 1
+        ;;
+    sync)
+        sync 1
+        ;;
+    list-nodes)
+        list_nodes 1
+        ;;
+    add-node)
+        add_node "$2" "$3"
+        ;;
+    remove-node)
+        remove_node "$2"
+        ;;
+    set-alias)
+        set_node_alias "$2" "$3"
+        ;;
+    log)
+        show_sync_log 1
+        ;;
+    update)
+        update 1
+        ;;
+    update-script)
+        update_script 1
+        ;;
+    update-sync)
+        update_sync_nodes 1
+        ;;
+    version)
+        show_version 1
+        ;;
+    install)
+        install 1
+        ;;
+    uninstall)
+        uninstall 1
+        ;;
+    config)
+        config 1
+        ;;
+    *)
+        show_menu
+        ;;
+esac

@@ -11,18 +11,107 @@ REPO_API="https://api.github.com/repos/ipevel/xnodeauto/releases/latest"
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
+blue='\033[0;34m'
+purple='\033[0;35m'
+cyan='\033[0;36m'
 plain='\033[0m'
 
+# 图标
+ICON_OK="✅"
+ICON_ERR="❌"
+ICON_WARN="⚠️"
+ICON_INFO="ℹ️"
+ICON_ROCKET="🚀"
+ICON_GEAR="⚙️"
+ICON_CHECK="✔"
+ICON_ARROW="→"
+
+# 进度条显示
+show_progress() {
+    local current=$1
+    local total=$2
+    local desc="$3"
+    local width=40
+    local percent=$((current * 100 / total))
+    local filled=$((current * width / total))
+    local empty=$((width - filled))
+    
+    printf "\r${cyan}[%s]${plain} ${desc} [${green}" "$ICON_GEAR"
+    for ((i=0; i<filled; i++)); do printf "█"; done
+    printf "${plain}"
+    for ((i=0; i<empty; i++)); do printf "░"; done
+    printf "] %3d%%" "$percent"
+    
+    if [ $current -eq $total ]; then
+        echo ""
+    fi
+}
+
+# 显示标题
+show_banner() {
+    clear
+    echo -e "${cyan}"
+    cat << 'EOF'
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║              ____  __                  __     __             ║
+║             / __ \/ /_  ___  ____  ____/ /__  / /_           ║
+║            / /_/ / __ \/ _ \/ __ \/ __  / _ \/ __/           ║
+║           / ____/ / / /  __/ / / / /_/ /  __/ /_             ║
+║          /_/   /_/ /_/\___/_/ /_/\__,_/\___/\__/             ║
+║                                                              ║
+║                 Node Auto-Sync 安装向导                      ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${plain}"
+    echo -e "  ${purple}版本:${plain} v1.2.1"
+    echo -e "  ${purple}仓库:${plain} https://github.com/ipevel/xnodeauto"
+    echo ""
+}
+
+# 显示步骤标题
+show_step() {
+    local step=$1
+    local total=$2
+    local title="$3"
+    echo ""
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${green}[$step/$total]${plain} $title"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+}
+
+# 显示成功消息
+show_success() {
+    echo -e "  ${ICON_OK} ${green}$1${plain}"
+}
+
+# 显示错误消息
+show_error() {
+    echo -e "  ${ICON_ERR} ${red}$1${plain}"
+}
+
+# 显示警告消息
+show_warn() {
+    echo -e "  ${ICON_WARN} ${yellow}$1${plain}"
+}
+
+# 显示信息消息
+show_info() {
+    echo -e "  ${ICON_INFO} ${blue}$1${plain}"
+}
+
 # 检查 root
-[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        show_error "必须使用root用户运行此脚本！"
+        echo -e "\n  使用命令: ${yellow}sudo bash install.sh${plain}\n"
+        exit 1
+    fi
+}
 
-echo -e "${green}"
-echo "============================================"
-echo "  Xboard Node Auto-Sync 一键安装脚本"
-echo "============================================"
-echo -e "${plain}"
-
-# ---------- 解析参数 ----------
+# 解析参数
 XBOARD_URL=""
 ADMIN_PATH=""
 ADMIN_EMAIL=""
@@ -37,185 +126,296 @@ while [ $# -gt 0 ]; do
         --admin-password) ADMIN_PASSWORD="$2"; shift 2 ;;
         --panel-token)    PANEL_TOKEN="$2";    shift 2 ;;
         *)
-            echo -e "${red}未知参数: $1${plain}"
+            show_error "未知参数: $1"
             exit 1
             ;;
     esac
 done
 
-# ---------- 1. 系统依赖 ----------
-echo -e "${green}[1/9]${plain} 安装系统依赖..."
-apt update -y
-apt install -y wget curl
+# 开始安装
+show_banner
+check_root
 
-# ---------- 架构检测 ----------
+# ---------- 1. 系统依赖 ----------
+show_step 1 9 "安装系统依赖"
+
+show_info "检测系统类型..."
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    show_success "系统: $NAME $VERSION"
+fi
+
+show_info "更新软件包列表..."
+if apt update -y > /dev/null 2>&1; then
+    show_success "软件包列表已更新"
+else
+    show_warn "软件包列表更新失败，继续安装..."
+fi
+
+show_info "安装必要工具..."
+if apt install -y wget curl > /dev/null 2>&1; then
+    show_success "工具安装完成"
+else
+    show_error "工具安装失败"
+    exit 1
+fi
+
+# 架构检测
 ARCH=$(uname -m)
 case "$ARCH" in
     x86_64)  ARCH_SUFFIX="amd64" ;;
     aarch64) ARCH_SUFFIX="arm64" ;;
     *)
-        echo -e "${red}不支持的架构: $ARCH${plain}"
+        show_error "不支持的架构: $ARCH"
         exit 1
         ;;
 esac
-echo -e "  检测到架构: ${green}${ARCH_SUFFIX}${plain}"
+show_success "检测到架构: ${cyan}${ARCH_SUFFIX}${plain}"
 
-# ---------- 2. 下载 xboard-node 二进制 ----------
-echo -e "${green}[2/9]${plain} 下载 xboard-node..."
+# ---------- 2. 下载 xboard-node ----------
+show_step 2 9 "下载 xboard-node"
 
+show_info "获取最新版本..."
 XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/cedar2025/Xboard-Node/releases/latest" \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$XBOARD_NODE_VERSION" ]; then
-    echo -e "${yellow}  无法获取最新版本，使用 v1.0.2${plain}"
+    show_warn "无法获取最新版本，使用 v1.0.2"
     XBOARD_NODE_VERSION="v1.0.2"
 fi
 
-echo -e "  版本: ${green}${XBOARD_NODE_VERSION}${plain}"
+show_success "版本: ${cyan}${XBOARD_NODE_VERSION}${plain}"
 
 DOWNLOAD_URL="https://github.com/cedar2025/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}"
 
 if [ -f /usr/local/bin/xboard-node ]; then
-    echo -e "${yellow}  xboard-node 已存在，跳过下载${plain}"
+    show_warn "xboard-node 已存在，跳过下载"
 else
-    wget -q -O /usr/local/bin/xboard-node "$DOWNLOAD_URL"
-    chmod +x /usr/local/bin/xboard-node
-    echo -e "  ${green}下载完成${plain}"
+    show_info "下载中..."
+    
+    # 下载进度显示
+    local_size=0
+    (
+        wget -q --show-progress -O /usr/local/bin/xboard-node "$DOWNLOAD_URL" 2>&1 | \
+        while read line; do
+            echo "$line" | grep -oP '\d+%' | head -1
+        done
+    ) | while read percent; do
+        if [ -n "$percent" ]; then
+            printf "\r  下载进度: ${green}${percent}${plain}    "
+        fi
+    done
+    echo ""
+    
+    if [ -s /usr/local/bin/xboard-node ]; then
+        chmod +x /usr/local/bin/xboard-node
+        show_success "下载完成"
+    else
+        show_error "下载失败"
+        exit 1
+    fi
 fi
 
-# ---------- 3. 下载 sync-nodes 二进制 ----------
-echo -e "${green}[3/9]${plain} 下载 sync-nodes..."
+# ---------- 3. 下载 sync-nodes ----------
+show_step 3 9 "下载 sync-nodes"
 
+show_info "获取最新版本..."
 SYNC_VERSION=$(curl -sL "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$SYNC_VERSION" ]; then
-    echo -e "${yellow}  无法获取版本，使用 v1.0.0${plain}"
+    show_warn "无法获取版本，使用 v1.0.0"
     SYNC_VERSION="v1.0.0"
 fi
 
-echo -e "  版本: ${green}${SYNC_VERSION}${plain}"
+show_success "版本: ${cyan}${SYNC_VERSION}${plain}"
 
 SYNC_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
 
-wget -q -O /usr/local/bin/sync-nodes "$SYNC_URL"
+show_info "下载中..."
+(
+    wget -q --show-progress -O /usr/local/bin/sync-nodes "$SYNC_URL" 2>&1 | \
+    while read line; do
+        echo "$line" | grep -oP '\d+%' | head -1
+    done
+) | while read percent; do
+    if [ -n "$percent" ]; then
+        printf "\r  下载进度: ${green}${percent}${plain}    "
+    fi
+done
+echo ""
 
-# 检查下载是否成功
-if [ ! -s /usr/local/bin/sync-nodes ]; then
-    echo -e "${red}  下载失败！请检查网络${plain}"
+if [ -s /usr/local/bin/sync-nodes ]; then
+    chmod +x /usr/local/bin/sync-nodes
+    show_success "下载完成"
+else
+    show_error "下载失败"
     exit 1
 fi
 
-chmod +x /usr/local/bin/sync-nodes
-echo -e "  ${green}下载完成${plain}"
-
 # ---------- 4. 创建配置目录 ----------
-echo -e "${green}[4/9]${plain} 创建配置目录..."
+show_step 4 9 "创建配置目录"
+
 mkdir -p /etc/xboard-node
+show_success "配置目录已创建: ${cyan}/etc/xboard-node${plain}"
 
 # ---------- 5. 下载 systemd 文件 ----------
-echo -e "${green}[5/9]${plain} 安装 systemd 服务..."
-wget -q -O /etc/systemd/system/xboard-node@.service  "${REPO_RAW}/systemd/xboard-node@.service"
-wget -q -O /etc/systemd/system/sync-nodes.service     "${REPO_RAW}/systemd/sync-nodes.service"
-wget -q -O /etc/systemd/system/sync-nodes.timer       "${REPO_RAW}/systemd/sync-nodes.timer"
-wget -q -O /etc/systemd/system/update-xboard-node.service "${REPO_RAW}/systemd/update-xboard-node.service"
-wget -q -O /etc/systemd/system/update-xboard-node.timer    "${REPO_RAW}/systemd/update-xboard-node.timer"
-echo -e "  ${green}完成${plain}"
+show_step 5 9 "安装 systemd 服务"
+
+show_info "下载服务文件..."
+local files=(
+    "xboard-node@.service"
+    "sync-nodes.service"
+    "sync-nodes.timer"
+    "update-xboard-node.service"
+    "update-xboard-node.timer"
+)
+
+local count=0
+for file in "${files[@]}"; do
+    count=$((count + 1))
+    show_progress $count ${#files[@]} "下载 $file"
+    
+    if wget -q -O "/etc/systemd/system/$file" "${REPO_RAW}/systemd/$file"; then
+        :
+    else
+        show_error "下载 $file 失败"
+        exit 1
+    fi
+done
+
+show_success "服务文件安装完成"
 
 # ---------- 6. 安装自动更新脚本 ----------
-echo -e "${green}[6/9]${plain} 安装自动更新脚本..."
-wget -q -O /usr/local/bin/update-xboard-node.sh "${REPO_RAW}/update-xboard-node.sh"
-chmod +x /usr/local/bin/update-xboard-node.sh
-echo -e "  ${green}完成${plain}"
+show_step 6 9 "安装自动更新脚本"
+
+if wget -q -O /usr/local/bin/update-xboard-node.sh "${REPO_RAW}/update-xboard-node.sh"; then
+    chmod +x /usr/local/bin/update-xboard-node.sh
+    show_success "自动更新脚本安装完成"
+else
+    show_error "下载失败"
+    exit 1
+fi
 
 # ---------- 7. 安装管理脚本 ----------
-echo -e "${green}[7/9]${plain} 安装管理脚本..."
-wget -q -O /usr/bin/xnode "${REPO_RAW}/xnode.sh"
-chmod +x /usr/bin/xnode
-echo -e "  ${green}完成${plain}"
+show_step 7 9 "安装管理脚本"
+
+if wget -q -O /usr/bin/xnode "${REPO_RAW}/xnode.sh"; then
+    chmod +x /usr/bin/xnode
+    show_success "管理脚本安装完成"
+else
+    show_error "下载失败"
+    exit 1
+fi
 
 # ---------- 8. 重载 systemd ----------
-echo -e "${green}[8/9]${plain} 重载 systemd..."
+show_step 8 9 "重载 systemd"
+
 systemctl daemon-reload
+show_success "systemd 已重载"
 
 # ---------- 9. 配置引导 ----------
-echo ""
-echo -e "${green}[9/9]${plain} 配置设置"
-echo ""
+show_step 9 9 "配置设置"
 
 # 如果没有通过参数传入配置，则引导用户填写
 if [ -z "$XBOARD_URL" ] || [ -z "$ADMIN_PATH" ] || [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ] || [ -z "$PANEL_TOKEN" ]; then
-    echo -e "${yellow}请填写以下配置信息：${plain}"
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${yellow}请填写以下配置信息${plain}"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
     # 面板地址
-    echo -e "${green}提示：${plain}面板地址是你的 Xboard 网站地址"
-    read -rp "请输入面板地址 (例如 https://panel.example.com): " XBOARD_URL
+    echo -e "${green}┌─ 面板地址 ──────────────────────────────────────────────────┐${plain}"
+    echo -e "  ${ICON_INFO} 面板地址是你的 Xboard 网站地址"
+    echo -e "  ${ICON_ARROW} 示例: ${cyan}https://panel.example.com${plain}"
+    echo -e "${green}└──────────────────────────────────────────────────────────────┘${plain}"
+    read -rp "  请输入面板地址: " XBOARD_URL
     while [ -z "$XBOARD_URL" ]; do
-        echo -e "${red}面板地址不能为空${plain}"
-        read -rp "请输入面板地址: " XBOARD_URL
+        show_error "面板地址不能为空"
+        read -rp "  请输入面板地址: " XBOARD_URL
     done
     
     # 后台路径
     echo ""
-    echo -e "${green}提示：${plain}后台路径是登录后台 URL 中的一段"
-    echo -e "例如后台是 ${yellow}https://panel.example.com/abc12345#/${plain}"
-    echo -e "那后台路径就是 ${yellow}abc12345${plain}"
-    read -rp "请输入后台路径: " ADMIN_PATH
+    echo -e "${green}┌─ 后台路径 ──────────────────────────────────────────────────┐${plain}"
+    echo -e "  ${ICON_INFO} 后台路径是登录后台 URL 中的一段"
+    echo -e "  ${ICON_ARROW} 示例: 后台是 ${yellow}https://panel.example.com/abc12345#/${plain}"
+    echo -e "  ${ICON_ARROW} 路径就是 ${cyan}abc12345${plain}"
+    echo -e "${green}└──────────────────────────────────────────────────────────────┘${plain}"
+    read -rp "  请输入后台路径: " ADMIN_PATH
     while [ -z "$ADMIN_PATH" ]; do
-        echo -e "${red}后台路径不能为空${plain}"
-        read -rp "请输入后台路径: " ADMIN_PATH
+        show_error "后台路径不能为空"
+        read -rp "  请输入后台路径: " ADMIN_PATH
     done
     
     # 管理员邮箱
     echo ""
-    echo -e "${green}提示：${plain}管理员邮箱是你登录后台使用的邮箱"
-    read -rp "请输入管理员邮箱: " ADMIN_EMAIL
+    echo -e "${green}┌─ 管理员邮箱 ────────────────────────────────────────────────┐${plain}"
+    echo -e "  ${ICON_INFO} 管理员邮箱是你登录后台使用的邮箱"
+    echo -e "  ${ICON_ARROW} 示例: ${cyan}admin@example.com${plain}"
+    echo -e "${green}└──────────────────────────────────────────────────────────────┘${plain}"
+    read -rp "  请输入管理员邮箱: " ADMIN_EMAIL
     while [ -z "$ADMIN_EMAIL" ]; do
-        echo -e "${red}管理员邮箱不能为空${plain}"
-        read -rp "请输入管理员邮箱: " ADMIN_EMAIL
+        show_error "管理员邮箱不能为空"
+        read -rp "  请输入管理员邮箱: " ADMIN_EMAIL
     done
     
     # 管理员密码
     echo ""
-    echo -e "${green}提示：${plain}管理员密码是你登录后台使用的密码"
-    read -rp "请输入管理员密码: " ADMIN_PASSWORD
+    echo -e "${green}┌─ 管理员密码 ────────────────────────────────────────────────┐${plain}"
+    echo -e "  ${ICON_INFO} 管理员密码是你登录后台使用的密码"
+    echo -e "  ${ICON_WARN} 输入时不会显示，请仔细输入"
+    echo -e "${green}└──────────────────────────────────────────────────────────────┘${plain}"
+    read -rsp "  请输入管理员密码: " ADMIN_PASSWORD
+    echo ""
     while [ -z "$ADMIN_PASSWORD" ]; do
-        echo -e "${red}管理员密码不能为空${plain}"
-        read -rp "请输入管理员密码: " ADMIN_PASSWORD
+        show_error "管理员密码不能为空"
+        read -rsp "  请输入管理员密码: " ADMIN_PASSWORD
+        echo ""
     done
     
     # 节点通信密钥
     echo ""
-    echo -e "${green}提示：${plain}节点通信密钥在 后台 → 系统设置 → 节点通信密钥"
-    read -rp "请输入节点通信密钥: " PANEL_TOKEN
+    echo -e "${green}┌─ 节点通信密钥 ──────────────────────────────────────────────┐${plain}"
+    echo -e "  ${ICON_INFO} 节点通信密钥在 后台 → 系统设置 → 节点通信密钥"
+    echo -e "  ${ICON_WARN} 输入时不会显示，请仔细输入"
+    echo -e "${green}└──────────────────────────────────────────────────────────────┘${plain}"
+    read -rsp "  请输入节点通信密钥: " PANEL_TOKEN
+    echo ""
     while [ -z "$PANEL_TOKEN" ]; do
-        echo -e "${red}节点通信密钥不能为空${plain}"
-        read -rp "请输入节点通信密钥: " PANEL_TOKEN
+        show_error "节点通信密钥不能为空"
+        read -rsp "  请输入节点通信密钥: " PANEL_TOKEN
+        echo ""
     done
 fi
 
 # 同步方式选择
 echo ""
-echo -e "${yellow}请选择同步方式：${plain}"
+echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+echo -e "${cyan}│${plain} ${yellow}请选择同步方式${plain}"
+echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
 echo ""
-echo -e "  ${green}1.${plain} 自动同步（直连节点）"
-echo -e "     - 适合节点域名直接解析到本机IP的场景"
-echo -e "     - 自动匹配所有属于本机的节点"
+echo -e "  ${green}[1]${plain} 自动同步（直连节点）"
+echo -e "      ${ICON_ARROW} 适合节点域名直接解析到本机IP的场景"
+echo -e "      ${ICON_ARROW} 自动匹配所有属于本机的节点"
+echo -e "      ${ICON_WARN} 检测到≥2个节点时需要手动配置"
 echo ""
-echo -e "  ${green}2.${plain} 手动添加（中转节点）${yellow}[默认]${plain}"
-echo -e "     - 适合中转机/CDN场景"
-echo -e "     - 需要手动指定节点ID"
+echo -e "  ${green}[2]${plain} 手动添加（中转节点） ${yellow}[推荐]${plain}"
+echo -e "      ${ICON_ARROW} 适合中转机/CDN场景"
+echo -e "      ${ICON_ARROW} 需要手动指定节点ID"
+echo -e "      ${ICON_ARROW} 一台服务器可运行多个节点"
 echo ""
-read -rp "请选择 [1-2，默认2]: " SYNC_MODE
+read -rp "  请选择 [1-2，默认2]: " SYNC_MODE
 
 case "$SYNC_MODE" in
     1)
         SYNC_MODE="auto"
-        echo -e "${green}已选择：自动同步（直连节点）${plain}"
+        echo ""
+        show_success "已选择：${cyan}自动同步（直连节点）${plain}"
         ;;
     *)
         SYNC_MODE="manual"
-        echo -e "${green}已选择：手动添加（中转节点）${plain}"
+        echo ""
+        show_success "已选择：${cyan}手动添加（中转节点）${plain}"
         ;;
 esac
 
@@ -242,48 +442,60 @@ EOF
 fi
 
 chmod 600 /etc/xboard-node/sync.yml
-
-echo ""
-echo -e "${green}配置已保存到 /etc/xboard-node/sync.yml${plain}"
-
-if [ "$SYNC_MODE" = "manual" ]; then
-    echo ""
-    echo -e "${yellow}提示：${plain}你选择了手动添加模式"
-    echo -e "请使用以下命令添加节点："
-    echo -e "  ${yellow}xnode add-node <节点ID>${plain}"
-    echo ""
-fi
+show_success "配置已保存到 ${cyan}/etc/xboard-node/sync.yml${plain}"
 
 # ---------- 完成提示 ----------
 echo ""
-echo -e "${green}============================================"
-echo "  安装完成！"
-echo "============================================${plain}"
-echo ""
-echo -e "现在执行首次同步..."
+echo -e "${green}╔══════════════════════════════════════════════════════════════╗${plain}"
+echo -e "${green}║${plain}                                                              ${green}║${plain}"
+echo -e "${green}║${plain}           ${ICON_ROCKET} 安装完成！正在执行首次同步...              ${green}║${plain}"
+echo -e "${green}║${plain}                                                              ${green}║${plain}"
+echo -e "${green}╚══════════════════════════════════════════════════════════════╝${plain}"
 echo ""
 
 # 执行首次同步
+echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+echo -e "${cyan}│${plain} 首次同步"
+echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
 /usr/local/bin/sync-nodes
 
 # 启动定时服务
 echo ""
-echo -e "${yellow}正在启动定时服务...${plain}"
-systemctl enable --now sync-nodes.timer
-systemctl enable --now update-xboard-node.timer
+echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+echo -e "${cyan}│${plain} 启动定时服务"
+echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+systemctl enable --now sync-nodes.timer > /dev/null 2>&1
+systemctl enable --now update-xboard-node.timer > /dev/null 2>&1
+show_success "定时服务已启动"
 
+# 最终提示
 echo ""
-echo -e "${green}============================================${plain}"
-echo -e "${green}全部完成！${plain}"
-echo -e "${green}============================================${plain}"
+echo -e "${green}╔══════════════════════════════════════════════════════════════╗${plain}"
+echo -e "${green}║${plain}                                                              ${green}║${plain}"
+echo -e "${green}║${plain}                  ${ICON_OK} 全部完成！                          ${green}║${plain}"
+echo -e "${green}║${plain}                                                              ${green}║${plain}"
+echo -e "${green}╚══════════════════════════════════════════════════════════════╝${plain}"
 echo ""
-echo -e "管理命令: ${yellow}xnode${plain}"
+echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+echo -e "${cyan}│${plain} ${yellow}常用命令${plain}"
+echo -e "${cyan}├──────────────────────────────────────────────────────────────┤${plain}"
+echo -e "${cyan}│${plain}  ${yellow}xnode${plain}          打开管理菜单"
+echo -e "${cyan}│${plain}  ${yellow}xnode status${plain}   查看节点状态"
+echo -e "${cyan}│${plain}  ${yellow}xnode sync${plain}     手动同步节点"
+echo -e "${cyan}│${plain}  ${yellow}xnode log${plain}      查看同步日志"
+echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
 echo ""
-echo -e "常用命令:"
-echo -e "  ${yellow}xnode${plain}          - 打开管理菜单"
-echo -e "  ${yellow}xnode status${plain}   - 查看节点状态"
-echo -e "  ${yellow}xnode sync${plain}     - 手动同步节点"
-echo -e "  ${yellow}xnode log${plain}      - 查看同步日志"
-echo ""
-echo -e "文档: https://github.com/ipevel/xnodeauto"
+
+if [ "$SYNC_MODE" = "manual" ]; then
+    echo -e "${yellow}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${yellow}│${plain} ${ICON_WARN} 你选择了手动添加模式，请使用以下命令添加节点："
+    echo -e "${yellow}├──────────────────────────────────────────────────────────────┤${plain}"
+    echo -e "${yellow}│${plain}  ${cyan}xnode add-node <节点ID>${plain}"
+    echo -e "${yellow}│${plain}"
+    echo -e "${yellow}│${plain}  ${ICON_INFO} 可以添加多个节点，每个节点ID执行一次"
+    echo -e "${yellow}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+fi
+
+echo -e "${cyan}文档: ${plain}https://github.com/ipevel/xnodeauto"
 echo ""
