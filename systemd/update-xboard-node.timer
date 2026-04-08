@@ -1,0 +1,11 @@
+[Unit]
+Description=Xboard-Node Auto Update Timer
+After=network.target
+
+[Timer]
+OnCalendar=03:00
+Persistent=true
+Unit=update-xboard-node.service
+
+[Install]
+WantedBy=timers.target

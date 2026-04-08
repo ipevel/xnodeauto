@@ -98,13 +98,27 @@ echo "[4/7] Creating config directory..."
 mkdir -p /etc/xboard-node
 
 # ---------- 5. 下载并安装 systemd 文件 ----------
-echo "[5/7] Installing systemd unit files..."
+echo "[5/8] Installing systemd unit files..."
 wget -qO /etc/systemd/system/xboard-node@.service  "${REPO_RAW}/systemd/xboard-node@.service"
 wget -qO /etc/systemd/system/sync-nodes.service     "${REPO_RAW}/systemd/sync-nodes.service"
 wget -qO /etc/systemd/system/sync-nodes.timer       "${REPO_RAW}/systemd/sync-nodes.timer"
 
-# ---------- 6. 写入配置 ----------
-echo "[6/7] Writing config..."
+# ---------- 6. 安装自动更新脚本 (新增) ----------
+echo "[6/8] Installing auto-update script..."
+if [ ! -f /usr/local/bin/update-xboard-node.sh ]; then
+    wget -qO /usr/local/bin/update-xboard-node.sh "${REPO_RAW}/update-xboard-node.sh"
+    chmod +x /usr/local/bin/update-xboard-node.sh
+    echo "  Installed update-xboard-node.sh"
+else
+    echo "  update-xboard-node.sh already exists, skipping"
+fi
+
+# 安装自动更新的 systemd 文件
+wget -qO /etc/systemd/system/update-xboard-node.service "${REPO_RAW}/systemd/update-xboard-node.service"
+wget -qO /etc/systemd/system/update-xboard-node.timer    "${REPO_RAW}/systemd/update-xboard-node.timer"
+
+# ---------- 7. 写入配置 ----------
+echo "[7/8] Writing config..."
 
 if [ -n "$XBOARD_URL" ] && [ -n "$ADMIN_PATH" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ] && [ -n "$PANEL_TOKEN" ]; then
     cat > /etc/xboard-node/sync.yml << EOF
@@ -123,8 +137,8 @@ elif [ ! -f /etc/xboard-node/sync.yml ]; then
     echo "  Please edit /etc/xboard-node/sync.yml before enabling the timer"
 fi
 
-# ---------- 7. 重载 systemd ----------
-echo "[7/7] Reloading systemd..."
+# ---------- 8. 重载 systemd ----------
+echo "[8/8] Reloading systemd..."
 systemctl daemon-reload
 
 # ---------- 完成提示 ----------
@@ -137,13 +151,15 @@ echo ""
 if [ -n "$XBOARD_URL" ] && [ -n "$ADMIN_PATH" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ] && [ -n "$PANEL_TOKEN" ]; then
     echo "Config is ready. Quick verify:"
     echo ""
-    echo "  1. Test sync:  sync-nodes"
-    echo "  2. Enable:     systemctl enable --now sync-nodes.timer"
+    echo "  1. Test sync:        sync-nodes"
+    echo "  2. Enable sync:      systemctl enable --now sync-nodes.timer"
+    echo "  3. Enable auto-update: systemctl enable --now update-xboard-node.timer"
 else
     echo "Next steps:"
     echo ""
     echo "  1. Edit /etc/xboard-node/sync.yml"
-    echo "  2. Test sync:  sync-nodes"
-    echo "  3. Enable:     systemctl enable --now sync-nodes.timer"
+    echo "  2. Test sync:        sync-nodes"
+    echo "  3. Enable sync:      systemctl enable --now sync-nodes.timer"
+    echo "  4. Enable auto-update: systemctl enable --now update-xboard-node.timer"
 fi
 echo ""
