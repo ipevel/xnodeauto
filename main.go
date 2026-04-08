@@ -474,7 +474,20 @@ func main() {
 		}
 	} else {
 		// Use IP auto-detection
+		// Check if there are too many nodes (potential relay/CDN scenario)
 		wanted = myNodes(allNodes, myIPs)
+		if len(wanted) >= 2 {
+			logError("detected %d nodes matching this server (potential relay/CDN scenario)", len(wanted))
+			logError("auto-detection is disabled for safety, please use manual mode instead")
+			logError("")
+			logError("Add 'manual_node_ids' to your config:")
+			logError("  manual_node_ids:")
+			logError("    - <node_id_1>")
+			logError("    - <node_id_2>")
+			logError("")
+			logError("Or use command: xnode add-node <node_id>")
+			os.Exit(1)
+		}
 	}
 
 	wantedIDs := make(map[int]bool)
