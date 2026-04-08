@@ -193,23 +193,15 @@ if [ -f /usr/local/bin/xboard-node ]; then
 else
     show_info "下载中..."
     
-    # 下载进度显示
-    local_size=0
-    (
-        wget -q --show-progress -O /usr/local/bin/xboard-node "$DOWNLOAD_URL" 2>&1 | \
-        while read line; do
-            echo "$line" | grep -oP '\d+%' | head -1
-        done
-    ) | while read percent; do
-        if [ -n "$percent" ]; then
-            printf "\r  下载进度: ${green}${percent}${plain}    "
+    # 使用 wget 的进度条输出
+    if wget -q --show-progress -O /usr/local/bin/xboard-node "$DOWNLOAD_URL" 2>&1; then
+        if [ -s /usr/local/bin/xboard-node ]; then
+            chmod +x /usr/local/bin/xboard-node
+            show_success "下载完成"
+        else
+            show_error "下载失败：文件为空"
+            exit 1
         fi
-    done
-    echo ""
-    
-    if [ -s /usr/local/bin/xboard-node ]; then
-        chmod +x /usr/local/bin/xboard-node
-        show_success "下载完成"
     else
         show_error "下载失败"
         exit 1
@@ -220,11 +212,20 @@ fi
 show_step 3 9 "下载 sync-nodes"
 
 show_info "获取最新版本..."
+
+# 尝试获取最新正式版本
 SYNC_VERSION=$(curl -sL "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
+# 如果没有正式版本，获取最新的 beta 版本
 if [ -z "$SYNC_VERSION" ]; then
-    show_warn "无法获取版本，使用 v1.0.0"
-    SYNC_VERSION="v1.0.0"
+    show_info "未找到正式版本，查找 beta 版本..."
+    SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases" | \
+        grep '"tag_name"' | head -1 | cut -d'"' -f4)
+fi
+
+if [ -z "$SYNC_VERSION" ]; then
+    show_warn "无法获取版本，使用 v1.2.1-beta"
+    SYNC_VERSION="v1.2.1-beta"
 fi
 
 show_success "版本: ${cyan}${SYNC_VERSION}${plain}"
@@ -232,23 +233,20 @@ show_success "版本: ${cyan}${SYNC_VERSION}${plain}"
 SYNC_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
 
 show_info "下载中..."
-(
-    wget -q --show-progress -O /usr/local/bin/sync-nodes "$SYNC_URL" 2>&1 | \
-    while read line; do
-        echo "$line" | grep -oP '\d+%' | head -1
-    done
-) | while read percent; do
-    if [ -n "$percent" ]; then
-        printf "\r  下载进度: ${green}${percent}${plain}    "
-    fi
-done
-echo ""
 
-if [ -s /usr/local/bin/sync-nodes ]; then
-    chmod +x /usr/local/bin/sync-nodes
-    show_success "下载完成"
+# 使用 wget 的进度条输出
+if wget -q --show-progress -O /usr/local/bin/sync-nodes "$SYNC_URL" 2>&1; then
+    if [ -s /usr/local/bin/sync-nodes ]; then
+        chmod +x /usr/local/bin/sync-nodes
+        show_success "下载完成"
+    else
+        show_error "下载失败：文件为空"
+        exit 1
+    fi
 else
     show_error "下载失败"
+    show_info "请检查网络连接或手动下载："
+    echo -e "  ${cyan}$SYNC_URL${plain}"
     exit 1
 fi
 
