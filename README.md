@@ -48,22 +48,24 @@ ssh root@你的服务器IP
 
 ### 步骤 2：执行安装命令
 
-把下面的信息替换成你自己的，然后复制执行：
-
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh) \
-  --url https://你的面板地址.com \
-  --admin-path 你的后台路径 \
-  --admin-email 你的管理员邮箱 \
-  --admin-password 你的管理员密码 \
-  --panel-token 你的节点通信密钥
+bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)
 ```
 
-### 步骤 3：设置开机自启
+安装脚本会自动引导你填写以下信息：
 
-```bash
-xnode enable
-```
+- 面板地址（例如 `https://panel.example.com`）
+- 后台路径（例如 `abc12345`）
+- 管理员邮箱
+- 管理员密码
+- 节点通信密钥（后台 → 系统设置 → 节点通信密钥）
+
+填写完成后，脚本会自动：
+1. 执行首次同步
+2. 启动定时同步服务
+3. 启动自动更新服务
+
+**就这么简单！**
 
 ---
 
