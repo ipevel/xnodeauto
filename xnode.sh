@@ -273,6 +273,160 @@ uninstall() {
     fi
 }
 
+# 列出所有节点
+list_nodes() {
+    echo -e "${green}节点列表:${plain}"
+    echo ""
+    
+    # 读取手动配置的节点ID
+    local manual_ids=""
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        manual_ids=$(grep -A 100 "manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^\s+-\s+[0-9]+" | awk '{print $2}' | tr '\n' ' ')
+    fi
+    
+    if [[ -n "$manual_ids" ]]; then
+        echo -e "${yellow}手动配置的节点:${plain} $manual_ids"
+    else
+        echo -e "${yellow}手动配置的节点:${plain} 无（使用IP自动匹配）"
+    fi
+    echo ""
+    
+    # 列出所有节点
+    local count=0
+    for node_id in $(get_node_ids); do
+        ((count++))
+        if check_node_status $node_id; then
+            echo -e "  ${green}●${plain} 节点 $node_id - 运行中"
+        else
+            echo -e "  ${red}○${plain} 节点 $node_id - 已停止"
+        fi
+    done
+    
+    if [[ $count -eq 0 ]]; then
+        echo -e "  ${yellow}无节点${plain}"
+    fi
+    echo ""
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
+# 添加节点
+add_node() {
+    local node_id=$1
+    
+    if [[ -z "$node_id" ]]; then
+        echo -e "${red}错误: 请指定节点ID${plain}"
+        echo "用法: xnode add-node <节点ID>"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    
+    # 检查配置文件
+    if [[ ! -f /etc/xboard-node/sync.yml ]]; then
+        echo -e "${red}错误: 配置文件不存在，请先运行安装${plain}"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    
+    # 检查节点ID是否有效（必须是数字）
+    if ! [[ "$node_id" =~ ^[0-9]+$ ]]; then
+        echo -e "${red}错误: 节点ID必须是数字${plain}"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    
+    # 检查是否已存在
+    if grep -q "^\s*-\s*${node_id}$" /etc/xboard-node/sync.yml 2>/dev/null; then
+        echo -e "${yellow}节点 $node_id 已在配置中${plain}"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 0
+    fi
+    
+    # 添加节点ID到配置文件
+    echo -e "${yellow}添加节点 $node_id...${plain}"
+    
+    # 检查是否已有 manual_node_ids 配置
+    if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
+        # 在 manual_node_ids 下添加
+        sed -i "/^manual_node_ids:/a \ \ - ${node_id}" /etc/xboard-node/sync.yml
+    else
+        # 添加 manual_node_ids 配置
+        echo -e "\nmanual_node_ids:\n  - ${node_id}" >> /etc/xboard-node/sync.yml
+    fi
+    
+    echo -e "${green}节点 $node_id 已添加到配置文件${plain}"
+    echo -e "${yellow}正在同步节点...${plain}"
+    
+    # 执行同步
+    if [[ x"${release}" == x"alpine" ]]; then
+        rc-service sync-nodes restart
+    else
+        systemctl restart sync-nodes.service
+    fi
+    
+    echo -e "${green}完成！${plain}"
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
+# 删除节点
+remove_node() {
+    local node_id=$1
+    
+    if [[ -z "$node_id" ]]; then
+        echo -e "${red}错误: 请指定节点ID${plain}"
+        echo "用法: xnode remove-node <节点ID>"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    
+    echo -e "${yellow}删除节点 $node_id...${plain}"
+    
+    # 停止服务
+    if [[ x"${release}" == x"alpine" ]]; then
+        rc-service xboard-node@$node_id stop 2>/dev/null
+    else
+        systemctl stop xboard-node@$node_id 2>/dev/null
+    fi
+    
+    # 禁用服务
+    if [[ x"${release}" == x"alpine" ]]; then
+        rc-update del xboard-node@$node_id 2>/dev/null
+        rm -f /etc/init.d/xboard-node@$node_id
+    else
+        systemctl disable xboard-node@$node_id 2>/dev/null
+    fi
+    
+    # 删除配置文件
+    rm -f /etc/xboard-node/${node_id}.yml
+    
+    # 从 sync.yml 中移除节点ID
+    if [[ -f /etc/xboard-node/sync.yml ]]; then
+        sed -i "/^\s*-\s*${node_id}$/d" /etc/xboard-node/sync.yml
+    fi
+    
+    echo -e "${green}节点 $node_id 已完全删除${plain}"
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
+
 # 获取所有节点ID
 get_node_ids() {
     if [[ -d /etc/xboard-node ]]; then
@@ -584,6 +738,9 @@ show_usage() {
     echo "xnode update       - 更新 xboard-node"
     echo "xnode update-script- 更新管理脚本"
     echo "xnode update-sync  - 更新 sync-nodes"
+    echo "xnode list-nodes   - 列出所有节点"
+    echo "xnode add-node <ID>- 手动添加节点"
+    echo "xnode remove-node <ID> - 手动删除节点"
     echo "xnode config       - 修改配置文件"
     echo "xnode log          - 查看同步日志"
     echo "xnode updatelog    - 查看更新日志"
@@ -611,16 +768,20 @@ show_menu() {
   ${green}7.${plain} 更新管理脚本
   ${green}8.${plain} 更新 sync-nodes
 ————————————————
-  ${green}9.${plain} 查看同步日志
-  ${green}10.${plain} 查看更新日志
+  ${green}9.${plain} 列出所有节点
+  ${green}10.${plain} 手动添加节点
+  ${green}11.${plain} 手动删除节点
 ————————————————
-  ${green}11.${plain} 设置开机自启
-  ${green}12.${plain} 取消开机自启
+  ${green}12.${plain} 查看同步日志
+  ${green}13.${plain} 查看更新日志
 ————————————————
-  ${green}13.${plain} 查看版本信息
-  ${green}14.${plain} 安装/重新安装
-  ${green}15.${plain} 卸载
-  ${green}16.${plain} 退出脚本
+  ${green}14.${plain} 设置开机自启
+  ${green}15.${plain} 取消开机自启
+————————————————
+  ${green}16.${plain} 查看版本信息
+  ${green}17.${plain} 安装/重新安装
+  ${green}18.${plain} 卸载
+  ${green}19.${plain} 退出脚本
 "
     
     # 显示状态
@@ -656,7 +817,7 @@ show_menu() {
     echo -e "  节点: ${green}${running} 运行中${plain}, ${red}${stopped} 已停止${plain}"
     echo ""
     
-    echo -n -e "${yellow}请输入选择 [0-16]: ${plain}"
+    echo -n -e "${yellow}请输入选择 [0-19]: ${plain}"
     read num
 
     case "${num}" in
@@ -669,15 +830,18 @@ show_menu() {
         6) update ;;
         7) update_script ;;
         8) update_sync_nodes ;;
-        9) sync_log ;;
-        10) update_log ;;
-        11) enable_autostart ;;
-        12) disable_autostart ;;
-        13) version ;;
-        14) install ;;
-        15) uninstall ;;
-        16) exit 0 ;;
-        *) echo -e "${red}请输入正确的数字 [0-16]${plain}" && show_menu ;;
+        9) list_nodes ;;
+        10) add_node ;;
+        11) remove_node ;;
+        12) sync_log ;;
+        13) update_log ;;
+        14) enable_autostart ;;
+        15) disable_autostart ;;
+        16) version ;;
+        17) install ;;
+        18) uninstall ;;
+        19) exit 0 ;;
+        *) echo -e "${red}请输入正确的数字 [0-19]${plain}" && show_menu ;;
     esac
 }
 
@@ -691,6 +855,9 @@ if [[ $# > 0 ]]; then
         "update") update 0 ;;
         "update-script") update_script 0 ;;
         "update-sync") update_sync_nodes 0 ;;
+        "list-nodes") list_nodes 0 ;;
+        "add-node") add_node $2 ;;
+        "remove-node") remove_node $2 ;;
         "config") config 0 ;;
         "log") sync_log 0 ;;
         "updatelog") update_log 0 ;;

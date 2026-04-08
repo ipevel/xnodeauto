@@ -40,6 +40,7 @@ type SyncConfig struct {
 	AdminEmail    string `yaml:"admin_email"`
 	AdminPassword string `yaml:"admin_password"`
 	PanelToken    string `yaml:"panel_token"`
+	ManualNodeIDs []int  `yaml:"manual_node_ids"` // 手动指定的节点ID列表（可选）
 }
 
 func loadConfig() (*SyncConfig, error) {
@@ -453,7 +454,29 @@ func main() {
 	}
 	logInfo("fetched %d nodes from panel", len(allNodes))
 
-	wanted := myNodes(allNodes, myIPs)
+	// Build node map for lookup
+	nodeMap := make(map[int]Node)
+	for _, n := range allNodes {
+		nodeMap[n.ID] = n
+	}
+
+	// Determine wanted nodes
+	var wanted []Node
+	if len(cfg.ManualNodeIDs) > 0 {
+		// Use manually specified node IDs
+		logInfo("using manual node IDs: %v", cfg.ManualNodeIDs)
+		for _, id := range cfg.ManualNodeIDs {
+			if node, ok := nodeMap[id]; ok {
+				wanted = append(wanted, node)
+			} else {
+				logWarn("node %d not found in panel", id)
+			}
+		}
+	} else {
+		// Use IP auto-detection
+		wanted = myNodes(allNodes, myIPs)
+	}
+
 	wantedIDs := make(map[int]bool)
 	wantedMap := make(map[int]Node)
 	for _, n := range wanted {
