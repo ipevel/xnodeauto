@@ -201,8 +201,16 @@ uninstall() {
     
     echo -e "${yellow}正在卸载...${plain}"
     
-    # 停止所有服务
+    # 停止并禁用所有节点服务
+    echo -e "${yellow}停止所有节点服务...${plain}"
     if [[ x"${release}" == x"alpine" ]]; then
+        # Alpine: 停止所有 xboard-node 服务
+        for service in $(ls /etc/init.d/ 2>/dev/null | grep "^xboard-node@"); do
+            rc-service "$service" stop 2>/dev/null
+            rc-update del "$service" 2>/dev/null
+            rm -f "/etc/init.d/$service"
+        done
+        # 停止同步和更新服务
         rc-service sync-nodes stop 2>/dev/null
         rc-service update-xboard-node stop 2>/dev/null
         rc-update del sync-nodes 2>/dev/null
@@ -210,35 +218,54 @@ uninstall() {
         rm -f /etc/init.d/sync-nodes
         rm -f /etc/init.d/update-xboard-node
     else
+        # systemd: 停止所有 xboard-node 服务
+        for service in $(systemctl list-units --all --type=service 2>/dev/null | grep "xboard-node@" | awk '{print $1}'); do
+            systemctl stop "$service" 2>/dev/null
+            systemctl disable "$service" 2>/dev/null
+        done
+        # 删除所有 xboard-node 服务文件
+        rm -f /etc/systemd/system/xboard-node@*.service
+        # 停止同步和更新服务
         systemctl stop sync-nodes.timer 2>/dev/null
         systemctl stop sync-nodes.service 2>/dev/null
         systemctl stop update-xboard-node.timer 2>/dev/null
         systemctl disable sync-nodes.timer 2>/dev/null
+        systemctl disable sync-nodes.service 2>/dev/null
         systemctl disable update-xboard-node.timer 2>/dev/null
+        # 删除服务文件
         rm -f /etc/systemd/system/sync-nodes.service
         rm -f /etc/systemd/system/sync-nodes.timer
         rm -f /etc/systemd/system/update-xboard-node.service
         rm -f /etc/systemd/system/update-xboard-node.timer
         rm -f /etc/systemd/system/xboard-node@.service
+        # 重新加载 systemd
         systemctl daemon-reload
     fi
     
-    # 停止所有节点
-    for service in $(systemctl list-units --all --type=service | grep "xboard-node@" | awk '{print $1}'); do
-        systemctl stop "$service" 2>/dev/null
-        systemctl disable "$service" 2>/dev/null
-    done
-    
-    # 删除文件
+    # 删除配置目录
+    echo -e "${yellow}删除配置文件...${plain}"
     rm -rf /etc/xboard-node
+    
+    # 删除程序文件
+    echo -e "${yellow}删除程序文件...${plain}"
     rm -f /usr/local/bin/sync-nodes
     rm -f /usr/local/bin/xboard-node
     rm -f /usr/local/bin/update-xboard-node.sh
-    rm -f /var/log/xboard-node-update.log
     rm -f /usr/bin/xnode
+    
+    # 删除日志文件
+    echo -e "${yellow}删除日志文件...${plain}"
+    rm -f /var/log/xboard-node-update.log
+    rm -f /var/log/sync-nodes.log
+    
+    # 删除备份文件
+    rm -f /usr/local/bin/sync-nodes.bak
+    rm -f /usr/local/bin/xboard-node.bak
+    rm -f /usr/bin/xnode.bak
     
     echo ""
     echo -e "${green}卸载成功！${plain}"
+    echo -e "${green}已删除所有服务、配置和程序文件${plain}"
     echo ""
     
     if [[ $# == 0 ]]; then
