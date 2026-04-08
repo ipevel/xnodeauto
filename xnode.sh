@@ -190,7 +190,7 @@ update() {
 update_script() {
     echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
     echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本"
-    echo -e "${cyan}└──────────────────────────────┐${plain}"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
     # 备份当前版本
@@ -202,14 +202,18 @@ update_script() {
     echo -e "  ${ICON_ARROW} 下载新版本..."
     
     # 下载新版本
-    wget -q -O /usr/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh
-    
-    if [ $? -eq 0 ] && [ -s /usr/bin/xnode ]; then
-        chmod +x /usr/bin/xnode
-        echo -e "  ${ICON_OK} ${green}管理脚本更新完成！${plain}"
-        rm -f /usr/bin/xnode.bak
+    if wget -q -O /usr/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh; then
+        if [ -s /usr/bin/xnode ]; then
+            chmod +x /usr/bin/xnode
+            echo -e "  ${ICON_OK} ${green}管理脚本更新完成！${plain}"
+            echo -e "  ${ICON_INFO} 重新运行以应用更新"
+            rm -f /usr/bin/xnode.bak
+        else
+            echo -e "  ${ICON_ERR} ${red}下载文件为空，恢复旧版本${plain}"
+            [ -f /usr/bin/xnode.bak ] && mv /usr/bin/xnode.bak /usr/bin/xnode
+        fi
     else
-        echo -e "  ${ICON_ERR} ${red}更新失败，恢复旧版本${plain}"
+        echo -e "  ${ICON_ERR} ${red}下载失败，恢复旧版本${plain}"
         [ -f /usr/bin/xnode.bak ] && mv /usr/bin/xnode.bak /usr/bin/xnode
     fi
     
@@ -239,9 +243,25 @@ update_sync_nodes() {
     esac
     
     BINARY_NAME="sync-nodes-linux-${ARCH_SUFFIX}"
-    DOWNLOAD_URL="https://github.com/ipevel/xnodeauto/releases/latest/download/${BINARY_NAME}"
+    
+    # 获取最新版本（优先正式版，其次beta版）
+    echo -e "  ${ICON_INFO} 正在获取最新版本..."
+    SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    
+    # 如果没有正式版，获取最新beta版
+    if [ -z "$SYNC_VERSION" ]; then
+        SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    fi
+    
+    if [ -z "$SYNC_VERSION" ]; then
+        echo -e "  ${ICON_WARN} ${yellow}无法获取版本，使用默认版本${plain}"
+        SYNC_VERSION="v1.2.1-beta"
+    fi
+    
+    DOWNLOAD_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/${BINARY_NAME}"
     
     echo -e "  ${ICON_INFO} 架构: ${cyan}$ARCH ($ARCH_SUFFIX)${plain}"
+    echo -e "  ${ICON_INFO} 版本: ${cyan}$SYNC_VERSION${plain}"
     echo -e "  ${ICON_ARROW} 下载中..."
     
     # 备份当前版本
@@ -251,33 +271,38 @@ update_sync_nodes() {
     fi
     
     # 下载新版本
-    wget -q -O /usr/local/bin/sync-nodes "$DOWNLOAD_URL"
-    
-    if [ $? -eq 0 ] && [ -s /usr/local/bin/sync-nodes ]; then
-        chmod +x /usr/local/bin/sync-nodes
-        echo -e "  ${ICON_OK} ${green}sync-nodes 更新完成！${plain}"
-        
-        # 显示版本
-        echo ""
-        /usr/local/bin/sync-nodes -v 2>/dev/null
-        echo ""
-        
-        rm -f /usr/local/bin/sync-nodes.bak
-        
-        # 询问是否重启同步服务
-        if [[ x"${release}" == x"alpine" ]]; then
-            if rc-service sync-nodes status 2>/dev/null | grep -q "started"; then
-                echo -e "${yellow}  ${ICON_ARROW} 重启同步服务...${plain}"
-                rc-service sync-nodes restart
+    if wget -q --show-progress -O /usr/local/bin/sync-nodes "$DOWNLOAD_URL"; then
+        if [ -s /usr/local/bin/sync-nodes ]; then
+            chmod +x /usr/local/bin/sync-nodes
+            echo -e "\n  ${ICON_OK} ${green}sync-nodes 更新完成！${plain}"
+            
+            # 显示版本
+            echo ""
+            /usr/local/bin/sync-nodes -v 2>/dev/null
+            echo ""
+            
+            rm -f /usr/local/bin/sync-nodes.bak
+            
+            # 重启同步服务
+            if [[ x"${release}" == x"alpine" ]]; then
+                if rc-service sync-nodes status 2>/dev/null | grep -q "started"; then
+                    echo -e "  ${ICON_ARROW} 重启同步服务..."
+                    rc-service sync-nodes restart
+                    echo -e "  ${ICON_OK} 同步服务已重启"
+                fi
+            else
+                if systemctl is-active sync-nodes.service 2>/dev/null | grep -q "active"; then
+                    echo -e "  ${ICON_ARROW} 重启同步服务..."
+                    systemctl restart sync-nodes.service
+                    echo -e "  ${ICON_OK} 同步服务已重启"
+                fi
             fi
         else
-            if systemctl is-active sync-nodes.service 2>/dev/null | grep -q "active"; then
-                echo -e "${yellow}  ${ICON_ARROW} 重启同步服务...${plain}"
-                systemctl restart sync-nodes.service
-            fi
+            echo -e "\n  ${ICON_ERR} ${red}下载文件为空，恢复旧版本${plain}"
+            [ -f /usr/local/bin/sync-nodes.bak ] && mv /usr/local/bin/sync-nodes.bak /usr/local/bin/sync-nodes
         fi
     else
-        echo -e "${red}${ICON_ERR} 更新失败，恢复旧版本${plain}"
+        echo -e "\n  ${ICON_ERR} ${red}下载失败，恢复旧版本${plain}"
         [ -f /usr/local/bin/sync-nodes.bak ] && mv /usr/local/bin/sync-nodes.bak /usr/local/bin/sync-nodes
     fi
     
