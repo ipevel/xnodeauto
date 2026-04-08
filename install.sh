@@ -194,18 +194,65 @@ if [ -z "$XBOARD_URL" ] || [ -z "$ADMIN_PATH" ] || [ -z "$ADMIN_EMAIL" ] || [ -z
     done
 fi
 
+# 同步方式选择
+echo ""
+echo -e "${yellow}请选择同步方式：${plain}"
+echo ""
+echo -e "  ${green}1.${plain} 自动同步（直连节点）"
+echo -e "     - 适合节点域名直接解析到本机IP的场景"
+echo -e "     - 自动匹配所有属于本机的节点"
+echo ""
+echo -e "  ${green}2.${plain} 手动添加（中转节点）${yellow}[默认]${plain}"
+echo -e "     - 适合中转机/CDN场景"
+echo -e "     - 需要手动指定节点ID"
+echo ""
+read -rp "请选择 [1-2，默认2]: " SYNC_MODE
+
+case "$SYNC_MODE" in
+    1)
+        SYNC_MODE="auto"
+        echo -e "${green}已选择：自动同步（直连节点）${plain}"
+        ;;
+    *)
+        SYNC_MODE="manual"
+        echo -e "${green}已选择：手动添加（中转节点）${plain}"
+        ;;
+esac
+
 # 写入配置
-cat > /etc/xboard-node/sync.yml << EOF
+if [ "$SYNC_MODE" = "manual" ]; then
+    cat > /etc/xboard-node/sync.yml << EOF
+xboard_url: "${XBOARD_URL}"
+admin_path: "${ADMIN_PATH}"
+admin_email: "${ADMIN_EMAIL}"
+admin_password: "${ADMIN_PASSWORD}"
+panel_token: "${PANEL_TOKEN}"
+
+# 手动指定节点ID（使用 xnode add-node 命令添加）
+manual_node_ids: []
+EOF
+else
+    cat > /etc/xboard-node/sync.yml << EOF
 xboard_url: "${XBOARD_URL}"
 admin_path: "${ADMIN_PATH}"
 admin_email: "${ADMIN_EMAIL}"
 admin_password: "${ADMIN_PASSWORD}"
 panel_token: "${PANEL_TOKEN}"
 EOF
+fi
+
 chmod 600 /etc/xboard-node/sync.yml
 
 echo ""
 echo -e "${green}配置已保存到 /etc/xboard-node/sync.yml${plain}"
+
+if [ "$SYNC_MODE" = "manual" ]; then
+    echo ""
+    echo -e "${yellow}提示：${plain}你选择了手动添加模式"
+    echo -e "请使用以下命令添加节点："
+    echo -e "  ${yellow}xnode add-node <节点ID>${plain}"
+    echo ""
+fi
 
 # ---------- 完成提示 ----------
 echo ""
