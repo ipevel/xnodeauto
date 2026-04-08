@@ -13,8 +13,8 @@ set -e
 #     --panel-token node-comm-token
 # ============================================================
 
-REPO_RAW="https://raw.githubusercontent.com/fuckproxy/xnodeauto/main"
-REPO_API="https://api.github.com/repos/fuckproxy/xnodeauto/releases/latest"
+REPO_RAW="https://raw.githubusercontent.com/ipevel/xnodeauto/main"
+REPO_API="https://api.github.com/repos/ipevel/xnodeauto/releases/latest"
 
 # ---------- 解析参数 ----------
 XBOARD_URL=""
@@ -141,25 +141,34 @@ fi
 echo "[8/8] Reloading systemd..."
 systemctl daemon-reload
 
+# ---------- 9. 安装管理脚本 ----------
+echo "[9/9] Installing xnode management script..."
+wget -qO /usr/bin/xnode "${REPO_RAW}/xnode.sh"
+chmod +x /usr/bin/xnode
+echo "  Installed /usr/bin/xnode"
+
 # ---------- 完成提示 ----------
 echo ""
 echo "============================================"
 echo "  Installation complete!"
 echo "============================================"
 echo ""
+echo "管理命令: xnode"
+echo ""
 
 if [ -n "$XBOARD_URL" ] && [ -n "$ADMIN_PATH" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ] && [ -n "$PANEL_TOKEN" ]; then
-    echo "Config is ready. Quick verify:"
+    echo "配置已完成，快速开始:"
     echo ""
-    echo "  1. Test sync:        sync-nodes"
-    echo "  2. Enable sync:      systemctl enable --now sync-nodes.timer"
-    echo "  3. Enable auto-update: systemctl enable --now update-xboard-node.timer"
+    echo "  xnode          - 打开管理菜单"
+    echo "  xnode status   - 查看节点状态"
+    echo "  xnode sync     - 手动同步"
 else
-    echo "Next steps:"
+    echo "请先配置:"
     echo ""
-    echo "  1. Edit /etc/xboard-node/sync.yml"
-    echo "  2. Test sync:        sync-nodes"
-    echo "  3. Enable sync:      systemctl enable --now sync-nodes.timer"
-    echo "  4. Enable auto-update: systemctl enable --now update-xboard-node.timer"
+    echo "  1. 编辑配置文件: vi /etc/xboard-node/sync.yml"
+    echo "  2. 运行同步: xnode sync"
+    echo "  3. 设置开机自启: xnode enable"
 fi
+echo ""
+echo "完整文档: https://github.com/ipevel/xnodeauto"
 echo ""

@@ -17,6 +17,11 @@
 - 更新后自动恢复所有运行中的节点
 - 更新日志记录在 `/var/log/xboard-node-update.log`
 
+### 3. 交互式管理命令
+- 输入 `xnode` 直接打开管理菜单
+- 支持命令行参数快速操作
+- 一键管理所有节点
+
 ---
 
 ## 📋 准备工作
@@ -25,8 +30,8 @@
 
 | 信息 | 从哪里获取 | 举例 |
 |------|-----------|------|
-| 面板地址 | 你的 Xboard 网站地址 | `example.com` |
-| 后台路径 | 登录后台时的 URL 中的一段 | 如果后台是 `example.com/abc12345#/`，那后台路径就是 `abc12345` |
+| 面板地址 | 你的 Xboard 网站地址 | `https://panel.example.com` |
+| 后台路径 | 登录后台时的 URL 中的一段 | 如果后台是 `https://panel.example.com/abc12345#/`，那后台路径就是 `abc12345` |
 | 管理员邮箱 | 你登录后台的邮箱 | `admin@example.com` |
 | 管理员密码 | 你登录后台的密码 | `yourpassword123` |
 | 节点通信密钥 | 后台 → 系统设置 → 节点通信密钥 | `node_comm_token_xxx` |
@@ -47,33 +52,71 @@ ssh root@你的服务器IP
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh) \
-  --url https://你的面板地址 \
+  --url https://你的面板地址.com \
   --admin-path 你的后台路径 \
   --admin-email 你的管理员邮箱 \
   --admin-password 你的管理员密码 \
   --panel-token 你的节点通信密钥
 ```
 
-### 步骤 3：验证安装
+### 步骤 3：设置开机自启
 
 ```bash
-# 手动测试一次同步
-sync-nodes
-
-# 查看输出，应该显示类似：
-# [INFO] my ips: [1.2.3.4]
-# [+] started node 1 (节点名称)
+xnode enable
 ```
 
-### 步骤 4：启用自动功能
+---
 
-```bash
-# 启用节点自动同步（每60秒检查一次）
-systemctl enable --now sync-nodes.timer
+## 💻 管理命令
 
-# 启用自动更新（每天凌晨3点检查更新）
-systemctl enable --now update-xboard-node.timer
+安装完成后，你可以使用 `xnode` 命令来管理：
+
+### 交互式菜单
+
+直接输入 `xnode` 打开管理菜单：
+
 ```
+  xnodeauto 管理脚本
+--- https://github.com/ipevel/xnodeauto ---
+  0. 修改配置文件
+————————————————
+  1. 查看所有节点状态
+  2. 启动所有节点
+  3. 停止所有节点
+  4. 重启所有节点
+  5. 手动同步节点
+  6. 更新 xboard-node
+————————————————
+  7. 查看同步日志
+  8. 查看更新日志
+————————————————
+  9. 设置开机自启
+  10. 取消开机自启
+————————————————
+  11. 查看版本信息
+  12. 安装/重新安装
+  13. 卸载
+  14. 退出脚本
+```
+
+### 命令行快速操作
+
+| 命令 | 功能 |
+|------|------|
+| `xnode` | 打开管理菜单 |
+| `xnode status` | 查看所有节点状态 |
+| `xnode start` | 启动所有节点 |
+| `xnode stop` | 停止所有节点 |
+| `xnode restart` | 重启所有节点 |
+| `xnode sync` | 手动同步节点 |
+| `xnode update` | 更新 xboard-node |
+| `xnode config` | 修改配置文件 |
+| `xnode log` | 查看同步日志 |
+| `xnode updatelog` | 查看更新日志 |
+| `xnode enable` | 设置开机自启 |
+| `xnode disable` | 取消开机自启 |
+| `xnode version` | 查看版本信息 |
+| `xnode uninstall` | 卸载 |
 
 ---
 
@@ -113,65 +156,6 @@ systemctl enable --now update-xboard-node.timer
 
 ---
 
-## 🔧 常用命令
-
-### 查看状态
-
-```bash
-# 查看所有正在运行的节点
-systemctl list-units 'xboard-node@*'
-
-# 查看某个具体节点的状态
-systemctl status xboard-node@1
-
-# 查看同步服务状态
-systemctl status sync-nodes.timer
-
-# 查看自动更新服务状态
-systemctl status update-xboard-node.timer
-```
-
-### 查看日志
-
-```bash
-# 查看同步日志（实时）
-journalctl -u sync-nodes.service -f
-
-# 查看某个节点的日志
-journalctl -u xboard-node@1 -f
-
-# 查看自动更新日志
-tail -f /var/log/xboard-node-update.log
-```
-
-### 手动操作
-
-```bash
-# 手动触发一次同步
-sync-nodes
-
-# 手动触发一次更新检查
-/usr/local/bin/update-xboard-node.sh
-
-# 手动停止某个节点
-systemctl stop xboard-node@1
-
-# 手动启动某个节点
-systemctl start xboard-node@1
-```
-
-### 停用自动功能
-
-```bash
-# 停止自动同步
-systemctl disable --now sync-nodes.timer
-
-# 停止自动更新
-systemctl disable --now update-xboard-node.timer
-```
-
----
-
 ## ❓ 常见问题
 
 ### 1. 安装后节点没有自动启动？
@@ -179,10 +163,10 @@ systemctl disable --now update-xboard-node.timer
 **检查步骤**：
 ```bash
 # 1. 手动运行一次，看报什么错
-sync-nodes
+xnode sync
 
-# 2. 检查 IP 是否被识别
-# 输出应该包含 [INFO] my ips: [你的IP]
+# 2. 查看状态
+xnode status
 ```
 
 **可能原因**：
@@ -208,8 +192,12 @@ sync-nodes
 
 ### 4. 想换一个面板怎么办？
 
-重新运行安装命令，带上新的参数即可：
+**方法一**：修改配置文件
+```bash
+xnode config
+```
 
+**方法二**：重新运行安装命令
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh) \
   --url https://新面板地址 \
@@ -222,24 +210,7 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 ### 5. 如何卸载？
 
 ```bash
-# 停止所有服务
-systemctl disable --now sync-nodes.timer
-systemctl disable --now update-xboard-node.timer
-
-# 停止所有节点
-systemctl stop 'xboard-node@*'
-
-# 删除文件
-rm -rf /usr/local/bin/sync-nodes
-rm -rf /usr/local/bin/xboard-node
-rm -rf /usr/local/bin/update-xboard-node.sh
-rm -rf /etc/xboard-node
-rm -rf /etc/systemd/system/xboard-node@.service
-rm -rf /etc/systemd/system/sync-nodes.*
-rm -rf /etc/systemd/system/update-xboard-node.*
-
-# 重载 systemd
-systemctl daemon-reload
+xnode uninstall
 ```
 
 ---
@@ -253,6 +224,7 @@ systemctl daemon-reload
 | 同步程序 | `/usr/local/bin/sync-nodes` | 同步脚本 |
 | 节点程序 | `/usr/local/bin/xboard-node` | 节点主程序 |
 | 更新脚本 | `/usr/local/bin/update-xboard-node.sh` | 自动更新脚本 |
+| 管理脚本 | `/usr/bin/xnode` | 管理命令 |
 | 更新日志 | `/var/log/xboard-node-update.log` | 更新日志 |
 
 ---
@@ -265,4 +237,7 @@ MIT
 
 ## 🙏 鸣谢
 
-基于 [fuckproxy/xnodeauto](https://github.com/fuckproxy/xnodeauto) 修改，增加了自动更新功能。
+基于 [fuckproxy/xnodeauto](https://github.com/fuckproxy/xnodeauto) 修改，增加了：
+- 自动更新功能
+- 交互式管理菜单
+- 一键管理命令
