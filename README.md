@@ -192,24 +192,7 @@ xnode status
 
 如果还是识别不到，可以提 issue 反馈。
 
-### 4. 想换一个面板怎么办？
-
-**方法一**：修改配置文件
-```bash
-xnode config
-```
-
-**方法二**：重新运行安装命令
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh) \
-  --url https://新面板地址 \
-  --admin-path 新后台路径 \
-  --admin-email 新邮箱 \
-  --admin-password 新密码 \
-  --panel-token 新通信密钥
-```
-
-### 5. 如何卸载？
+### 4. 如何卸载？
 
 ```bash
 xnode uninstall
