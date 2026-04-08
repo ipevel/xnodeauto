@@ -1055,27 +1055,22 @@ show_menu() {
 ╚══════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${plain}"
-    
+    echo -e ""
+    echo -e "  ${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "  ${cyan}│${plain} ${yellow}主菜单${plain}                                                       "
+    echo -e "  ${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo -e "  ${green}[0]${plain} 修改配置文件"
-    echo ""
     echo -e "  ${green}[1]${plain} 查看节点状态"
     echo -e "  ${green}[2]${plain} 节点操作（启动/停止/重启）"
     echo -e "  ${green}[3]${plain} 手动同步节点"
-    echo ""
     echo -e "  ${green}[4]${plain} 更新（xboard-node/脚本/sync-nodes）"
-    echo ""
     echo -e "  ${green}[5]${plain} 节点管理（列表/添加/删除/别名）"
-    echo ""
     echo -e "  ${green}[6]${plain} 查看日志（同步/更新）"
-    echo ""
     echo -e "  ${green}[7]${plain} 开机自启（切换）"
     echo -e "  ${green}[8]${plain} 查看版本信息"
-    echo ""
     echo -e "  ${green}[9]${plain} 安装/重新安装"
     echo -e "  ${green}[10]${plain} 卸载"
-    echo ""
     echo -e "  ${green}[11]${plain} 退出脚本"
-    echo ""
     echo -e "${cyan}────────────────────────────────────────────────────────────${plain}"
     read -rp "  请选择 [0-11]: " choice
     
