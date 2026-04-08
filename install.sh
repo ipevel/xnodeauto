@@ -418,29 +418,59 @@ case "$SYNC_MODE" in
 esac
 
 # 写入配置
-if [ "$SYNC_MODE" = "manual" ]; then
-    cat > /etc/xboard-node/sync.yml << EOF
-xboard_url: "${XBOARD_URL}"
-admin_path: "${ADMIN_PATH}"
-admin_email: "${ADMIN_EMAIL}"
-admin_password: "${ADMIN_PASSWORD}"
-panel_token: "${PANEL_TOKEN}"
-
-# 手动指定节点ID（使用 xnode add-node 命令添加）
-manual_node_ids: []
-EOF
-else
-    cat > /etc/xboard-node/sync.yml << EOF
+cat > /etc/xboard-node/sync.yml << EOF
 xboard_url: "${XBOARD_URL}"
 admin_path: "${ADMIN_PATH}"
 admin_email: "${ADMIN_EMAIL}"
 admin_password: "${ADMIN_PASSWORD}"
 panel_token: "${PANEL_TOKEN}"
 EOF
-fi
 
 chmod 600 /etc/xboard-node/sync.yml
 show_success "配置已保存到 ${cyan}/etc/xboard-node/sync.yml${plain}"
+
+# 如果选择手动添加，让用户输入节点ID
+if [ "$SYNC_MODE" = "manual" ]; then
+    echo ""
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${yellow}手动添加节点${plain}"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${ICON_INFO} 请输入节点ID，多个ID用逗号分隔（例如: 1,2,3）"
+    echo -e "  ${ICON_WARN} 如果暂时不添加，请直接按回车跳过"
+    echo ""
+    read -rp "  请输入节点ID: " NODE_IDS_INPUT
+    
+    if [ -n "$NODE_IDS_INPUT" ]; then
+        # 解析节点ID（支持逗号分隔）
+        IFS=',' read -ra NODE_IDS <<< "$NODE_IDS_INPUT"
+        
+        if [ ${#NODE_IDS[@]} -gt 0 ]; then
+            echo ""
+            echo -e "  ${ICON_ARROW} 添加节点ID: ${cyan}${NODE_IDS[*]}${plain}"
+            echo ""
+            
+            # 写入配置文件
+            echo "" >> /etc/xboard-node/sync.yml
+            echo "# 手动指定的节点ID" >> /etc/xboard-node/sync.yml
+            echo "manual_node_ids:" >> /etc/xboard-node/sync.yml
+            for id in "${NODE_IDS[@]}"; do
+                # 去除空格
+                id=$(echo "$id" | tr -d ' ')
+                echo "  - $id" >> /etc/xboard-node/sync.yml
+            done
+            
+            show_success "已添加 ${#NODE_IDS[@]} 个节点到配置"
+        fi
+    else
+        # 没有输入节点ID，创建空的手动配置
+        echo "" >> /etc/xboard-node/sync.yml
+        echo "# 手动指定的节点ID（使用 xnode add-node 命令添加）" >> /etc/xboard-node/sync.yml
+        echo "manual_node_ids: []" >> /etc/xboard-node/sync.yml
+        echo ""
+        show_info "稍后可以使用 ${cyan}xnode add-node <节点ID>${plain} 添加节点"
+    fi
+fi
 
 # ---------- 完成提示 ----------
 echo ""

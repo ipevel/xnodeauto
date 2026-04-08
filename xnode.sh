@@ -718,6 +718,22 @@ add_node() {
             if grep -E "  - $node_id$" /etc/xboard-node/sync.yml > /dev/null; then
                 echo -e "${yellow}${ICON_WARN} 节点 $node_id 已在配置中${plain}"
                 
+                # 检查节点是否在运行
+                local status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                if [[ "$status" == "active" ]]; then
+                    echo -e "${green}${ICON_OK} 节点 $node_id 正在运行${plain}"
+                else
+                    echo -e "${yellow}${ICON_WARN} 节点 $node_id 未运行，正在启动...${plain}"
+                    systemctl start xboard-node@$node_id.service
+                    sleep 2
+                    status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                    if [[ "$status" == "active" ]]; then
+                        echo -e "${green}${ICON_OK} 节点 $node_id 已启动${plain}"
+                    else
+                        echo -e "${red}${ICON_ERR} 节点 $node_id 启动失败，请检查日志${plain}"
+                    fi
+                fi
+                
                 # 如果提供了别名，更新别名
                 if [[ -n "$alias" ]]; then
                     set_alias "$node_id" "$alias"
@@ -734,8 +750,14 @@ add_node() {
     # 添加到配置文件
     if [[ -f /etc/xboard-node/sync.yml ]]; then
         if grep -q "manual_node_ids:" /etc/xboard-node/sync.yml; then
-            # 已有 manual_node_ids，添加到列表
-            sed -i "/manual_node_ids:/a \ \ - $node_id" /etc/xboard-node/sync.yml
+            # 已有 manual_node_ids，检查是否为空数组
+            if grep -q "manual_node_ids: \[\]" /etc/xboard-node/sync.yml; then
+                # 替换空数组
+                sed -i "s/manual_node_ids: \[\]/manual_node_ids:\n  - $node_id/" /etc/xboard-node/sync.yml
+            else
+                # 添加到列表
+                sed -i "/manual_node_ids:/a \ \ - $node_id" /etc/xboard-node/sync.yml
+            fi
         else
             # 没有 manual_node_ids，添加到文件末尾
             echo "" >> /etc/xboard-node/sync.yml
@@ -758,6 +780,17 @@ add_node() {
     echo ""
     echo -e "${ICON_ARROW} 执行同步..."
     /usr/local/bin/sync-nodes
+    
+    # 验证节点是否启动
+    echo ""
+    sleep 2
+    local status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+    if [[ "$status" == "active" ]]; then
+        echo -e "${green}${ICON_OK} 节点 $node_id 已成功启动${plain}"
+    else
+        echo -e "${red}${ICON_ERR} 节点 $node_id 启动失败，请检查日志${plain}"
+        echo -e "${ICON_INFO} 查看日志: ${cyan}journalctl -u xboard-node@$node_id.service -n 20${plain}"
+    fi
     
     echo ""
     if [[ $# -le 2 ]]; then
