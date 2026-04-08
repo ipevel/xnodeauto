@@ -273,6 +273,130 @@ uninstall() {
     fi
 }
 
+# 节点操作子菜单
+node_operation_menu() {
+    echo -e "
+${green}节点操作${plain}
+————————————————
+  ${green}1.${plain} 启动所有节点
+  ${green}2.${plain} 停止所有节点
+  ${green}3.${plain} 重启所有节点
+  ${green}4.${plain} 返回主菜单
+"
+    echo -n -e "${yellow}请选择 [1-4]: ${plain}"
+    read choice
+    
+    case "$choice" in
+        1) start_all ;;
+        2) stop_all ;;
+        3) restart_all ;;
+        4) show_menu ;;
+        *) echo -e "${red}无效选择${plain}" && node_operation_menu ;;
+    esac
+}
+
+# 更新子菜单
+update_menu() {
+    echo -e "
+${green}更新选项${plain}
+————————————————
+  ${green}1.${plain} 更新 xboard-node
+  ${green}2.${plain} 更新管理脚本
+  ${green}3.${plain} 更新 sync-nodes
+  ${green}4.${plain} 返回主菜单
+"
+    echo -n -e "${yellow}请选择 [1-4]: ${plain}"
+    read choice
+    
+    case "$choice" in
+        1) update ;;
+        2) update_script ;;
+        3) update_sync_nodes ;;
+        4) show_menu ;;
+        *) echo -e "${red}无效选择${plain}" && update_menu ;;
+    esac
+}
+
+# 节点管理子菜单
+node_manage_menu() {
+    echo -e "
+${green}节点管理${plain}
+————————————————
+  ${green}1.${plain} 列出所有节点
+  ${green}2.${plain} 手动添加节点
+  ${green}3.${plain} 手动删除节点
+  ${green}4.${plain} 返回主菜单
+"
+    echo -n -e "${yellow}请选择 [1-4]: ${plain}"
+    read choice
+    
+    case "$choice" in
+        1) list_nodes ;;
+        2) 
+            echo -n -e "${yellow}请输入节点ID: ${plain}"
+            read node_id
+            add_node "$node_id"
+            ;;
+        3) 
+            echo -n -e "${yellow}请输入节点ID: ${plain}"
+            read node_id
+            remove_node "$node_id"
+            ;;
+        4) show_menu ;;
+        *) echo -e "${red}无效选择${plain}" && node_manage_menu ;;
+    esac
+}
+
+# 日志查看子菜单
+log_menu() {
+    echo -e "
+${green}查看日志${plain}
+————————————————
+  ${green}1.${plain} 同步日志
+  ${green}2.${plain} 更新日志
+  ${green}3.${plain} 返回主菜单
+"
+    echo -n -e "${yellow}请选择 [1-3]: ${plain}"
+    read choice
+    
+    case "$choice" in
+        1) sync_log ;;
+        2) update_log ;;
+        3) show_menu ;;
+        *) echo -e "${red}无效选择${plain}" && log_menu ;;
+    esac
+}
+
+# 切换开机自启
+toggle_autostart() {
+    echo -e "${yellow}检查开机自启状态...${plain}"
+    
+    local is_enabled=false
+    if [[ x"${release}" == x"alpine" ]]; then
+        rc-update show default 2>/dev/null | grep -q "sync-nodes" && is_enabled=true
+    else
+        systemctl is-enabled sync-nodes.timer 2>/dev/null | grep -q "enabled" && is_enabled=true
+    fi
+    
+    if $is_enabled; then
+        echo -e "${yellow}当前状态: ${green}已开启${plain}"
+        confirm "是否关闭开机自启"
+        if [[ $? == 0 ]]; then
+            disable_autostart
+        fi
+    else
+        echo -e "${yellow}当前状态: ${red}已关闭${plain}"
+        confirm "是否开启开机自启"
+        if [[ $? == 0 ]]; then
+            enable_autostart
+        fi
+    fi
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
 # 列出所有节点
 list_nodes() {
     echo -e "${green}节点列表:${plain}"
@@ -730,7 +854,7 @@ show_usage() {
     echo "xnode 管理脚本使用方法: "
     echo "------------------------------------------"
     echo "xnode              - 显示管理菜单"
-    echo "xnode status       - 查看所有节点状态"
+    echo "xnode status       - 查看节点状态"
     echo "xnode start        - 启动所有节点"
     echo "xnode stop         - 停止所有节点"
     echo "xnode restart      - 重启所有节点"
@@ -742,10 +866,8 @@ show_usage() {
     echo "xnode add-node <ID>- 手动添加节点"
     echo "xnode remove-node <ID> - 手动删除节点"
     echo "xnode config       - 修改配置文件"
-    echo "xnode log          - 查看同步日志"
-    echo "xnode updatelog    - 查看更新日志"
-    echo "xnode enable       - 设置开机自启"
-    echo "xnode disable      - 取消开机自启"
+    echo "xnode log          - 查看日志"
+    echo "xnode autostart    - 切换开机自启"
     echo "xnode version      - 查看版本信息"
     echo "xnode install      - 安装/重新安装"
     echo "xnode uninstall    - 卸载"
@@ -758,30 +880,22 @@ show_menu() {
 --- https://github.com/ipevel/xnodeauto ---
   ${green}0.${plain} 修改配置文件
 ————————————————
-  ${green}1.${plain} 查看所有节点状态
-  ${green}2.${plain} 启动所有节点
-  ${green}3.${plain} 停止所有节点
-  ${green}4.${plain} 重启所有节点
-  ${green}5.${plain} 手动同步节点
+  ${green}1.${plain} 查看节点状态
+  ${green}2.${plain} 节点操作（启动/停止/重启）
+  ${green}3.${plain} 手动同步节点
 ————————————————
-  ${green}6.${plain} 更新 xboard-node
-  ${green}7.${plain} 更新管理脚本
-  ${green}8.${plain} 更新 sync-nodes
+  ${green}4.${plain} 更新（xboard-node/脚本/sync-nodes）
 ————————————————
-  ${green}9.${plain} 列出所有节点
-  ${green}10.${plain} 手动添加节点
-  ${green}11.${plain} 手动删除节点
+  ${green}5.${plain} 节点管理（列表/添加/删除）
 ————————————————
-  ${green}12.${plain} 查看同步日志
-  ${green}13.${plain} 查看更新日志
+  ${green}6.${plain} 查看日志（同步/更新）
 ————————————————
-  ${green}14.${plain} 设置开机自启
-  ${green}15.${plain} 取消开机自启
+  ${green}7.${plain} 开机自启（切换）
 ————————————————
-  ${green}16.${plain} 查看版本信息
-  ${green}17.${plain} 安装/重新安装
-  ${green}18.${plain} 卸载
-  ${green}19.${plain} 退出脚本
+  ${green}8.${plain} 查看版本信息
+  ${green}9.${plain} 安装/重新安装
+  ${green}10.${plain} 卸载
+  ${green}11.${plain} 退出脚本
 "
     
     # 显示状态
@@ -817,31 +931,23 @@ show_menu() {
     echo -e "  节点: ${green}${running} 运行中${plain}, ${red}${stopped} 已停止${plain}"
     echo ""
     
-    echo -n -e "${yellow}请输入选择 [0-19]: ${plain}"
+    echo -n -e "${yellow}请输入选择 [0-11]: ${plain}"
     read num
 
     case "${num}" in
         0) config ;;
         1) status ;;
-        2) start_all ;;
-        3) stop_all ;;
-        4) restart_all ;;
-        5) sync ;;
-        6) update ;;
-        7) update_script ;;
-        8) update_sync_nodes ;;
-        9) list_nodes ;;
-        10) add_node ;;
-        11) remove_node ;;
-        12) sync_log ;;
-        13) update_log ;;
-        14) enable_autostart ;;
-        15) disable_autostart ;;
-        16) version ;;
-        17) install ;;
-        18) uninstall ;;
-        19) exit 0 ;;
-        *) echo -e "${red}请输入正确的数字 [0-19]${plain}" && show_menu ;;
+        2) node_operation_menu ;;
+        3) sync ;;
+        4) update_menu ;;
+        5) node_manage_menu ;;
+        6) log_menu ;;
+        7) toggle_autostart ;;
+        8) version ;;
+        9) install ;;
+        10) uninstall ;;
+        11) exit 0 ;;
+        *) echo -e "${red}请输入正确的数字 [0-11]${plain}" && show_menu ;;
     esac
 }
 
@@ -860,9 +966,7 @@ if [[ $# > 0 ]]; then
         "remove-node") remove_node $2 ;;
         "config") config 0 ;;
         "log") sync_log 0 ;;
-        "updatelog") update_log 0 ;;
-        "enable") enable_autostart 0 ;;
-        "disable") disable_autostart 0 ;;
+        "autostart") toggle_autostart ;;
         "version") version 0 ;;
         "install") install 0 ;;
         "uninstall") uninstall 0 ;;
