@@ -70,6 +70,31 @@ update() {
     fi
 }
 
+update_script() {
+    echo -e "${green}开始更新 xnode 管理脚本...${plain}"
+    
+    # 备份当前版本
+    if [ -f /usr/bin/xnode ]; then
+        cp /usr/bin/xnode /usr/bin/xnode.bak
+    fi
+    
+    # 下载新版本
+    wget -q -O /usr/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh
+    
+    if [ $? -eq 0 ] && [ -s /usr/bin/xnode ]; then
+        chmod +x /usr/bin/xnode
+        echo -e "${green}管理脚本更新完成！${plain}"
+        rm -f /usr/bin/xnode.bak
+    else
+        echo -e "${red}更新失败，恢复旧版本${plain}"
+        [ -f /usr/bin/xnode.bak ] && mv /usr/bin/xnode.bak /usr/bin/xnode
+    fi
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
 config() {
     if [[ ! -f /etc/xboard-node/sync.yml ]]; then
         echo -e "${red}配置文件不存在，请先安装${plain}"
@@ -483,18 +508,20 @@ show_menu() {
   ${green}3.${plain} 停止所有节点
   ${green}4.${plain} 重启所有节点
   ${green}5.${plain} 手动同步节点
+————————————————
   ${green}6.${plain} 更新 xboard-node
+  ${green}7.${plain} 更新管理脚本
 ————————————————
-  ${green}7.${plain} 查看同步日志
-  ${green}8.${plain} 查看更新日志
+  ${green}8.${plain} 查看同步日志
+  ${green}9.${plain} 查看更新日志
 ————————————————
-  ${green}9.${plain} 设置开机自启
-  ${green}10.${plain} 取消开机自启
+  ${green}10.${plain} 设置开机自启
+  ${green}11.${plain} 取消开机自启
 ————————————————
-  ${green}11.${plain} 查看版本信息
-  ${green}12.${plain} 安装/重新安装
-  ${green}13.${plain} 卸载
-  ${green}14.${plain} 退出脚本
+  ${green}12.${plain} 查看版本信息
+  ${green}13.${plain} 安装/重新安装
+  ${green}14.${plain} 卸载
+  ${green}15.${plain} 退出脚本
 "
     
     # 显示状态
@@ -529,7 +556,7 @@ show_menu() {
     echo -e "  节点: ${green}${running} 运行中${plain}, ${red}${stopped} 已停止${plain}"
     echo ""
     
-    echo -n -e "${yellow}请输入选择 [0-14]: ${plain}"
+    echo -n -e "${yellow}请输入选择 [0-15]: ${plain}"
     read num
 
     case "${num}" in
@@ -540,15 +567,16 @@ show_menu() {
         4) restart_all ;;
         5) sync ;;
         6) update ;;
-        7) sync_log ;;
-        8) update_log ;;
-        9) enable_autostart ;;
-        10) disable_autostart ;;
-        11) version ;;
-        12) install ;;
-        13) uninstall ;;
-        14) exit 0 ;;
-        *) echo -e "${red}请输入正确的数字 [0-14]${plain}" && show_menu ;;
+        7) update_script ;;
+        8) sync_log ;;
+        9) update_log ;;
+        10) enable_autostart ;;
+        11) disable_autostart ;;
+        12) version ;;
+        13) install ;;
+        14) uninstall ;;
+        15) exit 0 ;;
+        *) echo -e "${red}请输入正确的数字 [0-15]${plain}" && show_menu ;;
     esac
 }
 
@@ -560,6 +588,7 @@ if [[ $# > 0 ]]; then
         "status") status 0 ;;
         "sync") sync 0 ;;
         "update") update 0 ;;
+        "update-script") update_script 0 ;;
         "config") config 0 ;;
         "log") sync_log 0 ;;
         "updatelog") update_log 0 ;;

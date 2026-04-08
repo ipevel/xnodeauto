@@ -48,12 +48,12 @@ fi
 log "当前版本: $CURRENT_VERSION"
 
 # 比较版本
-if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ] || [ "$CURRENT_VERSION" = "v$LATEST_VERSION" ]; then
-    log "[INFO] 已是最新版本，无需更新"
+if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ] || [ "$CURRENT_VERSION" = "v$LATEST_VERSION" ] || [ "v$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
+    log "[INFO] 已是最新版本 $LATEST_VERSION，无需更新"
     exit 0
 fi
 
-log "[INFO] 发现新版本，准备更新..."
+log "[INFO] 发现新版本: $LATEST_VERSION (当前: $CURRENT_VERSION)，准备更新..."
 
 # ====== 停止所有运行中的节点 ======
 log "[1/4] 停止所有运行中的节点..."
