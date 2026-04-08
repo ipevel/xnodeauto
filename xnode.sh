@@ -202,7 +202,8 @@ check_node_status() {
             return 1
         fi
     else
-        if systemctl is-active xboard-node@$node_id 2>/dev/null | grep -q "active"; then
+        local status=$(systemctl is-active xboard-node@$node_id 2>/dev/null)
+        if [[ "$status" == "active" ]]; then
             return 0
         else
             return 1
@@ -327,7 +328,8 @@ status() {
             echo -e "  状态: ${red}未运行${plain}"
         fi
     else
-        if systemctl is-active sync-nodes.timer 2>/dev/null | grep -q "active"; then
+        local sync_status=$(systemctl is-active sync-nodes.timer 2>/dev/null)
+        if [[ "$sync_status" == "active" ]]; then
             echo -e "  定时器: ${green}运行中${plain}"
         else
             echo -e "  定时器: ${red}未运行${plain}"
@@ -345,7 +347,8 @@ status() {
             echo -e "  状态: ${red}未运行${plain}"
         fi
     else
-        if systemctl is-active update-xboard-node.timer 2>/dev/null | grep -q "active"; then
+        local update_status=$(systemctl is-active update-xboard-node.timer 2>/dev/null)
+        if [[ "$update_status" == "active" ]]; then
             echo -e "  定时器: ${green}运行中${plain}"
         else
             echo -e "  定时器: ${red}未运行${plain}"
@@ -535,7 +538,8 @@ show_menu() {
             echo -e "  同步服务: ${red}未运行${plain}"
         fi
     else
-        if systemctl is-active sync-nodes.timer 2>/dev/null | grep -q "active"; then
+        local sync_status=$(systemctl is-active sync-nodes.timer 2>/dev/null)
+        if [[ "$sync_status" == "active" ]]; then
             echo -e "  同步服务: ${green}运行中${plain}"
         else
             echo -e "  同步服务: ${red}未运行${plain}"
