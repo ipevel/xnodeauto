@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ---------- version info ----------
+
+var (
+	Version   = "1.0.0"
+	BuildTime = "unknown"
+)
+
 // ---------- config ----------
 
 const (
@@ -24,7 +32,6 @@ const (
 	syncConfigPath = configDir + "/sync.yml"
 	tokenCachePath = configDir + "/.token"
 	serviceName    = "xboard-node@%d.service"
-	requestTimeout = 10 * time.Second
 )
 
 type SyncConfig struct {
@@ -69,6 +76,26 @@ func loadConfig() (*SyncConfig, error) {
 	return &cfg, nil
 }
 
+// ---------- logging ----------
+
+func logInfo(format string, args ...interface{}) {
+	fmt.Printf("[%s] [INFO] %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+}
+
+func logWarn(format string, args ...interface{}) {
+	fmt.Printf("[%s] [WARN] %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+}
+
+func logError(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "[%s] [ERROR] %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+}
+
+func logDebug(format string, args ...interface{}) {
+	if os.Getenv("SYNC_NODES_DEBUG") != "" {
+		fmt.Printf("[%s] [DEBUG] %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+	}
+}
+
 // ---------- IP detection ----------
 
 func getMyIPs() map[string]bool {
@@ -77,39 +104,44 @@ func getMyIPs() map[string]bool {
 	// local outbound IP (UDP dial, no packet sent)
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] local ip detect failed: %v\n", err)
+		logWarn("local ip detect failed: %v", err)
 	} else {
 		addr := conn.LocalAddr().(*net.UDPAddr)
 		ips[addr.IP.String()] = true
 		conn.Close()
+		logDebug("detected local ip: %s", addr.IP.String())
 	}
 
-	// public IP via api.ipify.org
+	// public IP via api.ipify.org with timeout
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("https://api.ipify.org")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] public ip detect failed: %v\n", err)
+		logWarn("public ip detect failed: %v", err)
 	} else {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		ip := strings.TrimSpace(string(body))
 		if ip != "" {
 			ips[ip] = true
+			logDebug("detected public ip: %s", ip)
 		}
 	}
 
 	return ips
 }
 
-func hostToIP(host string) string {
+func hostToIP(host string) (string, error) {
 	if host == "" {
-		return ""
+		return "", fmt.Errorf("empty host")
 	}
 	addrs, err := net.LookupHost(host)
-	if err != nil || len(addrs) == 0 {
-		return ""
+	if err != nil {
+		return "", fmt.Errorf("lookup failed: %w", err)
 	}
-	return addrs[0]
+	if len(addrs) == 0 {
+		return "", fmt.Errorf("no addresses found")
+	}
+	return addrs[0], nil
 }
 
 // ---------- Xboard API ----------
@@ -136,31 +168,47 @@ type nodesResponse struct {
 	Data []Node `json:"data"`
 }
 
-func login(cfg *SyncConfig) (string, error) {
+type apiClient struct {
+	cfg       *SyncConfig
+	client    *http.Client
+	token     string
+	maxRetry  int
+}
+
+func newAPIClient(cfg *SyncConfig) *apiClient {
+	return &apiClient{
+		cfg: cfg,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		maxRetry: 3,
+	}
+}
+
+func (c *apiClient) login() error {
 	body, _ := json.Marshal(loginRequest{
-		Email:    cfg.AdminEmail,
-		Password: cfg.AdminPassword,
+		Email:    c.cfg.AdminEmail,
+		Password: c.cfg.AdminPassword,
 	})
 
-	client := &http.Client{Timeout: requestTimeout}
-	resp, err := client.Post(
-		cfg.XboardURL+"/api/v2/passport/auth/login",
+	resp, err := c.client.Post(
+		c.cfg.XboardURL+"/api/v2/passport/auth/login",
 		"application/json",
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return "", fmt.Errorf("login request: %w", err)
+		return fmt.Errorf("login request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("login failed (status %d): %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("login failed (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var lr loginResponse
 	if err := json.NewDecoder(resp.Body).Decode(&lr); err != nil {
-		return "", fmt.Errorf("parse login response: %w", err)
+		return fmt.Errorf("parse login response: %w", err)
 	}
 
 	token := lr.Data.AuthData
@@ -168,80 +216,99 @@ func login(cfg *SyncConfig) (string, error) {
 		token = lr.Data.Token
 	}
 	if token == "" {
-		return "", fmt.Errorf("login response has no token")
+		return fmt.Errorf("login response has no token")
 	}
 
-	// cache token
-	os.WriteFile(tokenCachePath, []byte(token), 0600)
-	return token, nil
+	c.token = token
+	// cache token with restricted permissions
+	if err := os.WriteFile(tokenCachePath, []byte(token), 0600); err != nil {
+		logWarn("failed to cache token: %v", err)
+	}
+	return nil
 }
 
-func getToken(cfg *SyncConfig) (string, error) {
+func (c *apiClient) getToken() error {
+	// try cached token
 	data, err := os.ReadFile(tokenCachePath)
 	if err == nil {
 		token := strings.TrimSpace(string(data))
 		if token != "" {
-			return token, nil
+			c.token = token
+			logDebug("using cached token")
+			return nil
 		}
 	}
-	return login(cfg)
+	return c.login()
 }
 
-func fetchNodes(cfg *SyncConfig) ([]Node, error) {
-	token, err := getToken(cfg)
+func (c *apiClient) doRequest(method, url string) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	return c.client.Do(req)
+}
 
-	url := fmt.Sprintf("%s/api/v2/%s/server/manage/getNodes", cfg.XboardURL, cfg.AdminPath)
-
-	doRequest := func(tok string) (*http.Response, error) {
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("Authorization", "Bearer "+tok)
-		client := &http.Client{Timeout: requestTimeout}
-		return client.Do(req)
+func (c *apiClient) fetchNodes() ([]Node, error) {
+	if err := c.getToken(); err != nil {
+		return nil, err
 	}
 
-	resp, err := doRequest(token)
-	if err != nil {
-		return nil, fmt.Errorf("fetch nodes: %w", err)
-	}
-	defer resp.Body.Close()
+	url := fmt.Sprintf("%s/api/v2/%s/server/manage/getNodes", c.cfg.XboardURL, c.cfg.AdminPath)
 
-	// token expired, re-login
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		fmt.Println("[INFO] token expired, re-login...")
-		token, err = login(cfg)
-		if err != nil {
-			return nil, err
+	var lastErr error
+	for attempt := 1; attempt <= c.maxRetry; attempt++ {
+		if attempt > 1 {
+			logInfo("retry attempt %d/%d", attempt, c.maxRetry)
+			// re-login on retry
+			if err := c.login(); err != nil {
+				lastErr = err
+				continue
+			}
 		}
-		resp.Body.Close()
-		resp, err = doRequest(token)
+
+		resp, err := c.doRequest("GET", url)
 		if err != nil {
-			return nil, fmt.Errorf("fetch nodes (retry): %w", err)
+			lastErr = fmt.Errorf("fetch nodes: %w", err)
+			continue
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			lastErr = fmt.Errorf("unauthorized (status %d)", resp.StatusCode)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			lastErr = fmt.Errorf("fetch nodes failed (status %d): %s", resp.StatusCode, string(body))
+			continue
+		}
+
+		var nr nodesResponse
+		if err := json.NewDecoder(resp.Body).Decode(&nr); err != nil {
+			lastErr = fmt.Errorf("parse nodes response: %w", err)
+			continue
+		}
+
+		return nr.Data, nil
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("fetch nodes failed (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var nr nodesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&nr); err != nil {
-		return nil, fmt.Errorf("parse nodes response: %w", err)
-	}
-
-	return nr.Data, nil
+	return nil, fmt.Errorf("all retries failed: %w", lastErr)
 }
 
 func myNodes(allNodes []Node, myIPs map[string]bool) []Node {
 	var result []Node
 	for _, n := range allNodes {
-		ip := hostToIP(n.Host)
-		if ip != "" && myIPs[ip] {
+		ip, err := hostToIP(n.Host)
+		if err != nil {
+			logDebug("node %d (%s) host '%s' lookup failed: %v", n.ID, n.Name, n.Host, err)
+			continue
+		}
+		if myIPs[ip] {
 			result = append(result, n)
+			logDebug("node %d (%s) matched: %s -> %s", n.ID, n.Name, n.Host, ip)
 		}
 	}
 	return result
@@ -313,23 +380,60 @@ func runningInstances() map[int]bool {
 	return ids
 }
 
-func systemctl(action string, nodeID int) {
+func systemctl(action string, nodeID int) error {
 	unit := fmt.Sprintf(serviceName, nodeID)
-	exec.Command("systemctl", action, unit).Run()
+	out, err := exec.Command("systemctl", action, unit).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemctl %s failed: %v, output: %s", action, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func waitForNode(nodeID int, timeout time.Duration) error {
+	unit := fmt.Sprintf(serviceName, nodeID)
+	deadline := time.Now().Add(timeout)
+	
+	for time.Now().Before(deadline) {
+		out, _ := exec.Command("systemctl", "is-active", unit).Output()
+		status := strings.TrimSpace(string(out))
+		if status == "active" {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	
+	// timeout, get status for error message
+	out, _ := exec.Command("systemctl", "is-active", unit).Output()
+	status := strings.TrimSpace(string(out))
+	
+	// get last few lines of journal for debugging
+	journalOut, _ := exec.Command("journalctl", "-u", unit, "-n", "5", "--no-pager").Output()
+	
+	return fmt.Errorf("node %d did not start within %v (status: %s)\njournal:\n%s", 
+		nodeID, timeout, status, string(journalOut))
 }
 
 // ---------- main ----------
 
 func main() {
+	// version flag
+	showVersion := flag.Bool("v", false, "show version")
+	flag.Parse()
+	
+	if *showVersion {
+		fmt.Printf("sync-nodes version %s (built %s)\n", Version, BuildTime)
+		os.Exit(0)
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[ERR] %v\n", err)
+		logError("%v", err)
 		os.Exit(1)
 	}
 
 	myIPs := getMyIPs()
 	if len(myIPs) == 0 {
-		fmt.Fprintf(os.Stderr, "[ERR] could not detect any local IP, abort\n")
+		logError("could not detect any local IP, abort")
 		os.Exit(1)
 	}
 
@@ -337,15 +441,17 @@ func main() {
 	for ip := range myIPs {
 		ipList = append(ipList, ip)
 	}
-	fmt.Printf("[INFO] my ips: %v\n", ipList)
+	logInfo("detected IPs: %v", ipList)
 
 	os.MkdirAll(configDir, 0755)
 
-	allNodes, err := fetchNodes(cfg)
+	client := newAPIClient(cfg)
+	allNodes, err := client.fetchNodes()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[ERR] fetch nodes failed: %v\n", err)
+		logError("fetch nodes failed: %v", err)
 		os.Exit(1)
 	}
+	logInfo("fetched %d nodes from panel", len(allNodes))
 
 	wanted := myNodes(allNodes, myIPs)
 	wantedIDs := make(map[int]bool)
@@ -356,16 +462,38 @@ func main() {
 	}
 
 	currentIDs := runningInstances()
+	logInfo("current running: %d nodes, should run: %d nodes", len(currentIDs), len(wantedIDs))
 
 	hasChanges := false
+	startTime := time.Now()
 
 	// add new nodes
 	for id, node := range wantedMap {
 		if !currentIDs[id] {
-			writeConfig(cfg, node)
-			systemctl("enable", id)
-			systemctl("start", id)
-			fmt.Printf("[+] started node %d (%s)\n", id, node.Name)
+			logInfo("starting new node %d (%s)", id, node.Name)
+			
+			if _, err := writeConfig(cfg, node); err != nil {
+				logError("write config for node %d failed: %v", id, err)
+				continue
+			}
+			
+			if err := systemctl("enable", id); err != nil {
+				logError("enable node %d failed: %v", id, err)
+				continue
+			}
+			
+			if err := systemctl("start", id); err != nil {
+				logError("start node %d failed: %v", id, err)
+				continue
+			}
+			
+			// wait for node to start
+			if err := waitForNode(id, 10*time.Second); err != nil {
+				logError("node %d health check failed: %v", id, err)
+				continue
+			}
+			
+			logInfo("started node %d (%s) successfully", id, node.Name)
 			hasChanges = true
 		}
 	}
@@ -373,9 +501,23 @@ func main() {
 	// remove old nodes
 	for id := range currentIDs {
 		if !wantedIDs[id] {
-			systemctl("stop", id)
-			systemctl("disable", id)
-			fmt.Printf("[-] stopped node %d\n", id)
+			logInfo("stopping removed node %d", id)
+			
+			if err := systemctl("stop", id); err != nil {
+				logError("stop node %d failed: %v", id, err)
+			}
+			
+			if err := systemctl("disable", id); err != nil {
+				logError("disable node %d failed: %v", id, err)
+			}
+			
+			// remove config file
+			configPath := filepath.Join(configDir, fmt.Sprintf("%d.yml", id))
+			if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+				logWarn("remove config %s failed: %v", configPath, err)
+			}
+			
+			logInfo("stopped node %d successfully", id)
 			hasChanges = true
 		}
 	}
@@ -383,16 +525,36 @@ func main() {
 	// check existing nodes for config changes
 	for id, node := range wantedMap {
 		if currentIDs[id] {
-			changed, _ := writeConfig(cfg, node)
+			changed, err := writeConfig(cfg, node)
+			if err != nil {
+				logError("check config for node %d failed: %v", id, err)
+				continue
+			}
 			if changed {
-				systemctl("restart", id)
-				fmt.Printf("[~] restarted node %d (%s) (config changed)\n", id, node.Name)
+				logInfo("restarting node %d (%s) (config changed)", id, node.Name)
+				
+				if err := systemctl("restart", id); err != nil {
+					logError("restart node %d failed: %v", id, err)
+					continue
+				}
+				
+				// wait for node to restart
+				if err := waitForNode(id, 10*time.Second); err != nil {
+					logError("node %d health check failed: %v", id, err)
+					continue
+				}
+				
+				logInfo("restarted node %d (%s) successfully", id, node.Name)
 				hasChanges = true
 			}
 		}
 	}
 
+	elapsed := time.Since(startTime)
+	
 	if !hasChanges {
-		fmt.Printf("[INFO] no changes, %d nodes running\n", len(wantedIDs))
+		logInfo("no changes, %d nodes running (took %v)", len(wantedIDs), elapsed)
+	} else {
+		logInfo("sync completed in %v", elapsed)
 	}
 }

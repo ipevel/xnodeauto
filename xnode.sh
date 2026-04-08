@@ -95,6 +95,71 @@ update_script() {
     fi
 }
 
+update_sync_nodes() {
+    echo -e "${green}开始更新 sync-nodes...${plain}"
+    
+    # 检测架构
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)  ARCH_SUFFIX="amd64" ;;
+        aarch64) ARCH_SUFFIX="arm64" ;;
+        *)
+            echo -e "${red}不支持的架构: $ARCH${plain}"
+            if [[ $# == 0 ]]; then
+                before_show_menu
+            fi
+            return
+            ;;
+    esac
+    
+    BINARY_NAME="sync-nodes-linux-${ARCH_SUFFIX}"
+    DOWNLOAD_URL="https://github.com/ipevel/xnodeauto/releases/latest/download/${BINARY_NAME}"
+    
+    echo -e "${yellow}架构: $ARCH ($ARCH_SUFFIX)${plain}"
+    echo -e "${yellow}下载地址: $DOWNLOAD_URL${plain}"
+    
+    # 备份当前版本
+    if [ -f /usr/local/bin/sync-nodes ]; then
+        cp /usr/local/bin/sync-nodes /usr/local/bin/sync-nodes.bak
+        echo -e "${yellow}已备份旧版本${plain}"
+    fi
+    
+    # 下载新版本
+    wget -q -O /usr/local/bin/sync-nodes "$DOWNLOAD_URL"
+    
+    if [ $? -eq 0 ] && [ -s /usr/local/bin/sync-nodes ]; then
+        chmod +x /usr/local/bin/sync-nodes
+        echo -e "${green}sync-nodes 更新完成！${plain}"
+        
+        # 显示版本
+        if /usr/local/bin/sync-nodes -v 2>/dev/null; then
+            echo ""
+        fi
+        
+        rm -f /usr/local/bin/sync-nodes.bak
+        
+        # 询问是否重启同步服务
+        if [[ x"${release}" == x"alpine" ]]; then
+            if rc-service sync-nodes status 2>/dev/null | grep -q "started"; then
+                echo -e "${yellow}重启同步服务...${plain}"
+                rc-service sync-nodes restart
+            fi
+        else
+            if systemctl is-active sync-nodes.service 2>/dev/null | grep -q "active"; then
+                echo -e "${yellow}重启同步服务...${plain}"
+                systemctl restart sync-nodes.service
+            fi
+        fi
+    else
+        echo -e "${red}更新失败，恢复旧版本${plain}"
+        [ -f /usr/local/bin/sync-nodes.bak ] && mv /usr/local/bin/sync-nodes.bak /usr/local/bin/sync-nodes
+    fi
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
 config() {
     if [[ ! -f /etc/xboard-node/sync.yml ]]; then
         echo -e "${red}配置文件不存在，请先安装${plain}"
@@ -455,13 +520,14 @@ version() {
     echo ""
     
     if [[ -f /usr/local/bin/xboard-node ]]; then
-        echo -e "  xboard-node: $($(/usr/local/bin/xboard-node version 2>/dev/null || echo "未知"))"
+        echo -e "  xboard-node: $($(/usr/local/bin/xboard-node -v 2>/dev/null || echo "未知"))"
     else
         echo -e "  xboard-node: ${red}未安装${plain}"
     fi
     
     if [[ -f /usr/local/bin/sync-nodes ]]; then
-        echo -e "  sync-nodes: ${green}已安装${plain}"
+        SYNC_VERSION=$(/usr/local/bin/sync-nodes -v 2>/dev/null || echo "未知")
+        echo -e "  sync-nodes: ${green}${SYNC_VERSION}${plain}"
     else
         echo -e "  sync-nodes: ${red}未安装${plain}"
     fi
@@ -489,6 +555,8 @@ show_usage() {
     echo "xnode restart      - 重启所有节点"
     echo "xnode sync         - 手动同步节点"
     echo "xnode update       - 更新 xboard-node"
+    echo "xnode update-script- 更新管理脚本"
+    echo "xnode update-sync  - 更新 sync-nodes"
     echo "xnode config       - 修改配置文件"
     echo "xnode log          - 查看同步日志"
     echo "xnode updatelog    - 查看更新日志"
@@ -514,17 +582,18 @@ show_menu() {
 ————————————————
   ${green}6.${plain} 更新 xboard-node
   ${green}7.${plain} 更新管理脚本
+  ${green}8.${plain} 更新 sync-nodes
 ————————————————
-  ${green}8.${plain} 查看同步日志
-  ${green}9.${plain} 查看更新日志
+  ${green}9.${plain} 查看同步日志
+  ${green}10.${plain} 查看更新日志
 ————————————————
-  ${green}10.${plain} 设置开机自启
-  ${green}11.${plain} 取消开机自启
+  ${green}11.${plain} 设置开机自启
+  ${green}12.${plain} 取消开机自启
 ————————————————
-  ${green}12.${plain} 查看版本信息
-  ${green}13.${plain} 安装/重新安装
-  ${green}14.${plain} 卸载
-  ${green}15.${plain} 退出脚本
+  ${green}13.${plain} 查看版本信息
+  ${green}14.${plain} 安装/重新安装
+  ${green}15.${plain} 卸载
+  ${green}16.${plain} 退出脚本
 "
     
     # 显示状态
@@ -560,7 +629,7 @@ show_menu() {
     echo -e "  节点: ${green}${running} 运行中${plain}, ${red}${stopped} 已停止${plain}"
     echo ""
     
-    echo -n -e "${yellow}请输入选择 [0-15]: ${plain}"
+    echo -n -e "${yellow}请输入选择 [0-16]: ${plain}"
     read num
 
     case "${num}" in
@@ -572,15 +641,16 @@ show_menu() {
         5) sync ;;
         6) update ;;
         7) update_script ;;
-        8) sync_log ;;
-        9) update_log ;;
-        10) enable_autostart ;;
-        11) disable_autostart ;;
-        12) version ;;
-        13) install ;;
-        14) uninstall ;;
-        15) exit 0 ;;
-        *) echo -e "${red}请输入正确的数字 [0-15]${plain}" && show_menu ;;
+        8) update_sync_nodes ;;
+        9) sync_log ;;
+        10) update_log ;;
+        11) enable_autostart ;;
+        12) disable_autostart ;;
+        13) version ;;
+        14) install ;;
+        15) uninstall ;;
+        16) exit 0 ;;
+        *) echo -e "${red}请输入正确的数字 [0-16]${plain}" && show_menu ;;
     esac
 }
 
@@ -593,6 +663,7 @@ if [[ $# > 0 ]]; then
         "sync") sync 0 ;;
         "update") update 0 ;;
         "update-script") update_script 0 ;;
+        "update-sync") update_sync_nodes 0 ;;
         "config") config 0 ;;
         "log") sync_log 0 ;;
         "updatelog") update_log 0 ;;
