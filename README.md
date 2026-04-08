@@ -25,7 +25,7 @@
 
 | 信息 | 从哪里获取 | 举例 |
 |------|-----------|------|
-| 面板地址 | 你的 Xboard 网站地址 | `https://vp.example.com` |
+| 面板地址 | 你的 Xboard 网站地址 | `https://panel.example.com` |
 | 后台路径 | 登录后台时的 URL 中的一段 | 如果后台是 `https://panel.example.com/abc12345#/`，那后台路径就是 `abc12345` |
 | 管理员邮箱 | 你登录后台的邮箱 | `admin@example.com` |
 | 管理员密码 | 你登录后台的密码 | `yourpassword123` |
