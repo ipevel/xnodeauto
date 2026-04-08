@@ -9,7 +9,7 @@ set -e
 
 LOG_FILE="/var/log/xboard-node-update.log"
 XBOARD_NODE_BIN="/usr/local/bin/xboard-node"
-REPO_API="https://api.github.com/repos/cedar2025/Xboard-Node/releases/latest"
+REPO_API="https://api.github.com/repos/ipevel/Xboard-Node/releases/latest"
 ARCH=$(uname -m)
 
 log() {
@@ -70,7 +70,7 @@ fi
 
 # ====== 下载新版本 ======
 log "[2/4] 下载新版本..."
-DOWNLOAD_URL="https://github.com/cedar2025/Xboard-Node/releases/download/${LATEST_VERSION}/xboard-node-linux-${ARCH_SUFFIX}"
+DOWNLOAD_URL="https://github.com/ipevel/Xboard-Node/releases/download/${LATEST_VERSION}/xboard-node-linux-${ARCH_SUFFIX}"
 
 wget -qO /tmp/xboard-node-new "$DOWNLOAD_URL" || {
     log "[ERROR] 下载失败"
