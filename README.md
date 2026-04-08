@@ -25,8 +25,8 @@
 
 | 信息 | 从哪里获取 | 举例 |
 |------|-----------|------|
-| 面板地址 | 你的 Xboard 网站地址 | `https://panel.example.com` |
-| 后台路径 | 登录后台时的 URL 中的一段 | 如果后台是 `https://panel.example.com/abc12345#/`，那后台路径就是 `abc12345` |
+| 面板地址 | 你的 Xboard 网站地址 | `example.com` |
+| 后台路径 | 登录后台时的 URL 中的一段 | 如果后台是 `example.com/abc12345#/`，那后台路径就是 `abc12345` |
 | 管理员邮箱 | 你登录后台的邮箱 | `admin@example.com` |
 | 管理员密码 | 你登录后台的密码 | `yourpassword123` |
 | 节点通信密钥 | 后台 → 系统设置 → 节点通信密钥 | `node_comm_token_xxx` |
@@ -47,7 +47,7 @@ ssh root@你的服务器IP
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh) \
-  --url https://你的面板地址.com \
+  --url https://你的面板地址 \
   --admin-path 你的后台路径 \
   --admin-email 你的管理员邮箱 \
   --admin-password 你的管理员密码 \
