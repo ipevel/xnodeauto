@@ -89,12 +89,22 @@ echo -e "${green}[3/9]${plain} 下载 sync-nodes..."
 SYNC_VERSION=$(curl -sL "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$SYNC_VERSION" ]; then
-    echo -e "${yellow}  使用 main 分支版本${plain}"
-    wget -q -O /usr/local/bin/sync-nodes "${REPO_RAW}/sync-nodes-linux-${ARCH_SUFFIX}"
-else
-    echo -e "  版本: ${green}${SYNC_VERSION}${plain}"
-    wget -q -O /usr/local/bin/sync-nodes "https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
+    echo -e "${yellow}  无法获取版本，使用 v1.0.0${plain}"
+    SYNC_VERSION="v1.0.0"
 fi
+
+echo -e "  版本: ${green}${SYNC_VERSION}${plain}"
+
+SYNC_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
+
+wget -q -O /usr/local/bin/sync-nodes "$SYNC_URL"
+
+# 检查下载是否成功
+if [ ! -s /usr/local/bin/sync-nodes ]; then
+    echo -e "${red}  下载失败！请检查网络${plain}"
+    exit 1
+fi
+
 chmod +x /usr/local/bin/sync-nodes
 echo -e "  ${green}下载完成${plain}"
 

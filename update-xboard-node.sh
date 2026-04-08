@@ -42,7 +42,7 @@ if [ ! -f "$XBOARD_NODE_BIN" ]; then
     log "[WARN] xboard-node 未安装，准备安装..."
     CURRENT_VERSION="未安装"
 else
-    CURRENT_VERSION=$($XBOARD_NODE_BIN --version 2>&1 | head -1 || echo "v0.0.0")
+    CURRENT_VERSION=$($XBOARD_NODE_BIN -v 2>&1 | head -1 || echo "v0.0.0")
 fi
 
 log "当前版本: $CURRENT_VERSION"
@@ -90,7 +90,7 @@ mv /tmp/xboard-node-new "$XBOARD_NODE_BIN"
 chmod +x "$XBOARD_NODE_BIN"
 
 # 验证新版本
-NEW_VERSION=$($XBOARD_NODE_BIN --version 2>&1 | head -1 || echo "未知")
+NEW_VERSION=$($XBOARD_NODE_BIN -v 2>&1 | head -1 || echo "未知")
 log "新版本已安装: $NEW_VERSION"
 
 # ====== 启动之前停止的节点 ======
