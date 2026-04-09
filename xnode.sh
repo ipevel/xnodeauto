@@ -161,8 +161,12 @@ confirm() {
 }
 
 before_show_menu() {
-    echo && echo -n -e "${yellow}按回车返回主菜单: ${plain}" && read temp
-    show_menu
+    # 只等待用户按回车，不调用 show_menu
+    # 调用此函数的函数会继续执行，然后返回主菜单
+    echo ""
+    echo -n -e "${yellow}按回车返回主菜单: ${plain}"
+    read temp
+    # 不调用 show_menu，让调用者继续执行
 }
 
 
@@ -200,6 +204,7 @@ config() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -262,6 +267,7 @@ uninstall() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -352,6 +358,7 @@ status() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -398,6 +405,7 @@ start_all() {
     echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -427,6 +435,7 @@ stop_all() {
     echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -460,6 +469,7 @@ restart_all() {
     echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -484,6 +494,7 @@ sync() {
     echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -553,6 +564,7 @@ list_nodes() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -653,6 +665,7 @@ add_node() {
     echo ""
     if [[ $# -le 2 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -697,6 +710,7 @@ remove_node() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -728,6 +742,7 @@ show_sync_log() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -745,6 +760,7 @@ show_update_log() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -816,6 +832,7 @@ toggle_autostart() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
@@ -853,6 +870,7 @@ show_version() {
     
     if [[ $# == 0 ]]; then
         before_show_menu
+        show_menu
     fi
 }
 
