@@ -189,33 +189,109 @@ update() {
 
 update_script() {
     echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本和相关组件"
     echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
-    # 备份当前版本
+    local REPO_RAW="https://raw.githubusercontent.com/ipevel/xnodeauto/main"
+    local UPDATE_FAILED=0
+    
+    # ====== 更新 xnode 管理脚本 ======
+    echo -e "  ${ICON_ARROW} 更新 xnode 管理脚本..."
+    
     if [ -f /usr/local/bin/xnode ]; then
         cp /usr/local/bin/xnode /usr/local/bin/xnode.bak
-        echo -e "  ${ICON_INFO} 已备份当前版本"
     fi
     
-    echo -e "  ${ICON_ARROW} 下载新版本..."
-    
-    # 下载新版本
-    if wget -q -O /usr/local/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh; then
+    if wget -q -O /usr/local/bin/xnode "${REPO_RAW}/xnode.sh"; then
         if [ -s /usr/local/bin/xnode ]; then
             chmod +x /usr/local/bin/xnode
-            echo -e "  ${ICON_OK} ${green}管理脚本更新完成！${plain}"
-            echo -e "  ${ICON_INFO} 重新运行以应用更新"
+            echo -e "  ${ICON_OK} xnode 管理脚本已更新"
             rm -f /usr/local/bin/xnode.bak
         else
-            echo -e "  ${ICON_ERR} ${red}下载文件为空，恢复旧版本${plain}"
+            echo -e "  ${ICON_ERR} xnode 下载文件为空"
             [ -f /usr/local/bin/xnode.bak ] && mv /usr/local/bin/xnode.bak /usr/local/bin/xnode
+            UPDATE_FAILED=1
         fi
     else
-        echo -e "  ${ICON_ERR} ${red}下载失败，恢复旧版本${plain}"
+        echo -e "  ${ICON_ERR} xnode 下载失败"
         [ -f /usr/local/bin/xnode.bak ] && mv /usr/local/bin/xnode.bak /usr/local/bin/xnode
+        UPDATE_FAILED=1
     fi
+    
+    # ====== 更新 update-xboard-node.sh ======
+    echo -e "  ${ICON_ARROW} 更新 xboard-node 自动更新脚本..."
+    
+    if [ -f /usr/local/bin/update-xboard-node.sh ]; then
+        cp /usr/local/bin/update-xboard-node.sh /usr/local/bin/update-xboard-node.sh.bak
+    fi
+    
+    if wget -q -O /usr/local/bin/update-xboard-node.sh "${REPO_RAW}/update-xboard-node.sh"; then
+        if [ -s /usr/local/bin/update-xboard-node.sh ]; then
+            chmod +x /usr/local/bin/update-xboard-node.sh
+            echo -e "  ${ICON_OK} xboard-node 自动更新脚本已更新"
+            rm -f /usr/local/bin/update-xboard-node.sh.bak
+        else
+            echo -e "  ${ICON_WARN} update-xboard-node.sh 下载文件为空"
+            [ -f /usr/local/bin/update-xboard-node.sh.bak ] && mv /usr/local/bin/update-xboard-node.sh.bak /usr/local/bin/update-xboard-node.sh
+        fi
+    else
+        echo -e "  ${ICON_WARN} update-xboard-node.sh 下载失败，保留当前版本"
+        [ -f /usr/local/bin/update-xboard-node.sh.bak ] && mv /usr/local/bin/update-xboard-node.sh.bak /usr/local/bin/update-xboard-node.sh
+    fi
+    
+    # ====== 更新 sync-nodes ======
+    echo -e "  ${ICON_ARROW} 更新 sync-nodes 同步程序..."
+    
+    # 检测架构
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)  ARCH_SUFFIX="amd64" ;;
+        aarch64) ARCH_SUFFIX="arm64" ;;
+        *)
+            echo -e "  ${ICON_WARN} 不支持的架构: $ARCH，跳过 sync-nodes 更新"
+            ARCH_SUFFIX=""
+            ;;
+    esac
+    
+    if [ -n "$ARCH_SUFFIX" ]; then
+        # 获取最新版本
+        SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+        
+        if [ -z "$SYNC_VERSION" ]; then
+            echo -e "  ${ICON_WARN} 无法获取 sync-nodes 最新版本"
+        else
+            if [ -f /usr/local/bin/sync-nodes ]; then
+                cp /usr/local/bin/sync-nodes /usr/local/bin/sync-nodes.bak
+            fi
+            
+            SYNC_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
+            
+            if wget -q --show-progress -O /usr/local/bin/sync-nodes "$SYNC_URL"; then
+                if [ -s /usr/local/bin/sync-nodes ]; then
+                    chmod +x /usr/local/bin/sync-nodes
+                    /usr/local/bin/sync-nodes -v 2>/dev/null
+                    echo -e "  ${ICON_OK} sync-nodes 已更新到 ${SYNC_VERSION}"
+                    rm -f /usr/local/bin/sync-nodes.bak
+                else
+                    echo -e "  ${ICON_WARN} sync-nodes 下载文件为空"
+                    [ -f /usr/local/bin/sync-nodes.bak ] && mv /usr/local/bin/sync-nodes.bak /usr/local/bin/sync-nodes
+                fi
+            else
+                echo -e "  ${ICON_WARN} sync-nodes 下载失败，保留当前版本"
+                [ -f /usr/local/bin/sync-nodes.bak ] && mv /usr/local/bin/sync-nodes.bak /usr/local/bin/sync-nodes
+            fi
+        fi
+    fi
+    
+    # ====== 总结 ======
+    echo ""
+    if [ $UPDATE_FAILED -eq 0 ]; then
+        echo -e "  ${ICON_OK} ${green}所有组件更新完成！${plain}"
+    else
+        echo -e "  ${ICON_WARN} ${yellow}部分组件更新失败，请检查网络连接${plain}"
+    fi
+    echo -e "  ${ICON_INFO} 重新运行 xnode 以应用更新"
     
     if [[ $# == 0 ]]; then
         before_show_menu
