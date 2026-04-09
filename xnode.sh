@@ -194,27 +194,27 @@ update_script() {
     echo ""
     
     # 备份当前版本
-    if [ -f /usr/bin/xnode ]; then
-        cp /usr/bin/xnode /usr/bin/xnode.bak
+    if [ -f /usr/local/bin/xnode ]; then
+        cp /usr/local/bin/xnode /usr/local/bin/xnode.bak
         echo -e "  ${ICON_INFO} 已备份当前版本"
     fi
     
     echo -e "  ${ICON_ARROW} 下载新版本..."
     
     # 下载新版本
-    if wget -q -O /usr/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh; then
-        if [ -s /usr/bin/xnode ]; then
-            chmod +x /usr/bin/xnode
+    if wget -q -O /usr/local/bin/xnode https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh; then
+        if [ -s /usr/local/bin/xnode ]; then
+            chmod +x /usr/local/bin/xnode
             echo -e "  ${ICON_OK} ${green}管理脚本更新完成！${plain}"
             echo -e "  ${ICON_INFO} 重新运行以应用更新"
-            rm -f /usr/bin/xnode.bak
+            rm -f /usr/local/bin/xnode.bak
         else
             echo -e "  ${ICON_ERR} ${red}下载文件为空，恢复旧版本${plain}"
-            [ -f /usr/bin/xnode.bak ] && mv /usr/bin/xnode.bak /usr/bin/xnode
+            [ -f /usr/local/bin/xnode.bak ] && mv /usr/local/bin/xnode.bak /usr/local/bin/xnode
         fi
     else
         echo -e "  ${ICON_ERR} ${red}下载失败，恢复旧版本${plain}"
-        [ -f /usr/bin/xnode.bak ] && mv /usr/bin/xnode.bak /usr/bin/xnode
+        [ -f /usr/local/bin/xnode.bak ] && mv /usr/local/bin/xnode.bak /usr/local/bin/xnode
     fi
     
     if [[ $# == 0 ]]; then
@@ -388,7 +388,7 @@ uninstall() {
     rm -f /usr/local/bin/xboard-node
     rm -f /usr/local/bin/sync-nodes
     rm -f /usr/local/bin/update-xboard-node.sh
-    rm -f /usr/bin/xnode
+    rm -f /usr/local/bin/xnode
     rm -f /etc/systemd/system/xboard-node@.service
     rm -f /etc/systemd/system/sync-nodes.service
     rm -f /etc/systemd/system/sync-nodes.timer
