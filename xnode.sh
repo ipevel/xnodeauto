@@ -189,7 +189,7 @@ update() {
 
 update_script() {
     echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本（重装模式）"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本（保留配置）"
     echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
@@ -204,11 +204,11 @@ update_script() {
     fi
     
     echo -e "  ${ICON_INFO} 检测到配置文件，将保留原有配置"
-    echo -e "  ${ICON_INFO} 开始重新安装最新版本..."
+    echo -e "  ${ICON_INFO} 开始强制更新最新版本..."
     echo ""
     
-    # 使用安装脚本重装（install.sh 会自动检测并保留配置）
-    bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)
+    # 使用强制更新脚本（保留配置）
+    bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-force.sh)
     
     if [[ $? -eq 0 ]]; then
         echo ""
