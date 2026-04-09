@@ -1025,6 +1025,15 @@ update_all() {
     done
     systemctl daemon-reload
     echo -e "    ${ICON_OK} systemd 服务文件更新完成"
+    
+    # 下载 update-xboard-node.sh
+    echo -e "    ${ICON_ARROW} update-xboard-node.sh"
+    if wget -q -O /usr/local/bin/update-xboard-node.sh "https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-xboard-node.sh?t=$(date +%s)"; then
+        chmod +x /usr/local/bin/update-xboard-node.sh
+        echo -e "    ${ICON_OK} update-xboard-node.sh 更新完成"
+    else
+        echo -e "    ${ICON_ERR} update-xboard-node.sh 下载失败"
+    fi
     echo ""
     
     # 恢复配置
