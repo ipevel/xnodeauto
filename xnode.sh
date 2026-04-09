@@ -166,6 +166,20 @@ before_show_menu() {
 }
 
 install() {
+    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 安装/重新安装（不保留配置）"
+    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
+    echo ""
+    echo -e "  ${ICON_WARN} ${yellow}警告：这将清除所有现有配置${plain}"
+    echo ""
+    confirm "确定要继续吗?" "n"
+    if [[ $? != 0 ]]; then
+        if [[ $# == 0 ]]; then
+            show_menu
+        fi
+        return 0
+    fi
+    echo ""
     bash <(curl -Ls https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)
     if [[ $? == 0 ]]; then
         if [[ $# == 0 ]]; then
@@ -189,36 +203,125 @@ update() {
 
 update_script() {
     echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "${cyan}│${plain} ${ICON_GEAR} 更新管理脚本（保留配置）"
+    echo -e "${cyan}│${plain} ${ICON_GEAR} 重新安装（保留配置）"
     echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
     # 检查配置文件
-    if [ ! -d "/etc/xboard-node" ]; then
-        echo -e "  ${ICON_WARN} 未检测到配置目录，建议使用全新安装"
-        echo -e "  ${ICON_INFO} 运行: bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)"
+    if [ ! -d "/etc/xboard-node" ] || [ ! -f "/etc/xboard-node/sync.yml" ]; then
+        echo -e "  ${ICON_ERR} ${red}未检测到配置文件，请先安装${plain}"
+        echo -e "  ${ICON_INFO} 运行: xnode install"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
-        return
+        return 1
     fi
     
-    echo -e "  ${ICON_INFO} 检测到配置文件，将保留原有配置"
-    echo -e "  ${ICON_INFO} 开始强制更新最新版本..."
+    # 备份配置
+    BACKUP_DIR="/tmp/xnode-backup-$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    
+    echo -e "  ${ICON_INFO} 备份配置文件..."
+    for file in /etc/xboard-node/*.yml /etc/xboard-node/*.yaml; do
+        [ -f "$file" ] && cp "$file" "$BACKUP_DIR/" && echo -e "    ${ICON_OK} $(basename $file)"
+    done
+    [ -f "/etc/xboard-node/node_alias.yml" ] && cp /etc/xboard-node/node_alias.yml "$BACKUP_DIR/" && echo -e "    ${ICON_OK} node_alias.yml"
+    echo -e "  ${ICON_OK} 配置已备份到: ${cyan}$BACKUP_DIR${plain}"
     echo ""
     
-    # 使用强制更新脚本（保留配置）
-    bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-force.sh)
-    
-    if [[ $? -eq 0 ]]; then
-        echo ""
-        echo -e "  ${ICON_OK} ${green}管理脚本更新完成！${plain}"
-        echo -e "  ${ICON_INFO} 所有组件已更新到最新版本"
-        echo -e "  ${ICON_INFO} 原有配置已保留"
-    else
-        echo ""
-        echo -e "  ${ICON_ERR} ${red}更新失败，请检查网络连接${plain}"
+    # 停止服务
+    echo -e "  ${ICON_INFO} 停止服务..."
+    RUNNING_NODES=$(systemctl list-units --type=service --state=running | grep "xboard-node@" | awk '{print $1}' | cut -d'@' -f2 | cut -d'.' -f1)
+    if [ -n "$RUNNING_NODES" ]; then
+        for node in $RUNNING_NODES; do
+            systemctl stop "xboard-node@$node" 2>/dev/null
+            echo -e "    ${ICON_OK} 停止节点: $node"
+        done
     fi
+    systemctl stop sync-nodes.timer 2>/dev/null
+    systemctl stop update-xboard-node.timer 2>/dev/null
+    echo -e "  ${ICON_OK} 服务已停止"
+    echo ""
+    
+    # 下载组件
+    echo -e "  ${ICON_INFO} 下载最新组件..."
+    echo ""
+    
+    # 检测架构
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)  ARCH_SUFFIX="amd64" ;;
+        aarch64) ARCH_SUFFIX="arm64" ;;
+        *)       echo -e "  ${ICON_ERR} ${red}不支持的架构: $ARCH${plain}"; rm -rf "$BACKUP_DIR"; return 1 ;;
+    esac
+    
+    # 获取版本
+    SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    [ -z "$SYNC_VERSION" ] && SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    [ -z "$SYNC_VERSION" ] && SYNC_VERSION="v1.2.4"
+    
+    echo -e "    ${ICON_ARROW} sync-nodes ($SYNC_VERSION)"
+    if wget -q --show-progress -O /usr/local/bin/sync-nodes "https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}" 2>&1; then
+        chmod +x /usr/local/bin/sync-nodes
+        echo -e "    ${ICON_OK} sync-nodes 下载完成"
+    else
+        echo -e "    ${ICON_ERR} sync-nodes 下载失败"
+    fi
+    
+    echo -e "    ${ICON_ARROW} update-xboard-node.sh"
+    if wget -q -O /usr/local/bin/update-xboard-node.sh "https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-xboard-node.sh"; then
+        chmod +x /usr/local/bin/update-xboard-node.sh
+        echo -e "    ${ICON_OK} update-xboard-node.sh 下载完成"
+    else
+        echo -e "    ${ICON_ERR} update-xboard-node.sh 下载失败"
+    fi
+    
+    echo -e "    ${ICON_ARROW} xnode"
+    if wget -q -O /usr/local/bin/xnode "https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh?t=$(date +%s)"; then
+        chmod +x /usr/local/bin/xnode
+        echo -e "    ${ICON_OK} xnode 下载完成"
+    else
+        echo -e "    ${ICON_ERR} xnode 下载失败"
+    fi
+    
+    # 下载 systemd 文件
+    echo -e "    ${ICON_ARROW} systemd 服务文件"
+    for file in xboard-node@.service sync-nodes.service sync-nodes.timer update-xboard-node.service update-xboard-node.timer; do
+        wget -q -O "/etc/systemd/system/$file" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/systemd/$file" 2>/dev/null
+    done
+    systemctl daemon-reload
+    echo -e "    ${ICON_OK} systemd 服务文件下载完成"
+    echo ""
+    
+    # 恢复配置
+    echo -e "  ${ICON_INFO} 恢复配置文件..."
+    for file in "$BACKUP_DIR"/*.yml "$BACKUP_DIR"/*.yaml; do
+        [ -f "$file" ] && cp "$file" /etc/xboard-node/ && echo -e "    ${ICON_OK} $(basename $file)"
+    done
+    [ -f "$BACKUP_DIR/node_alias.yml" ] && cp "$BACKUP_DIR/node_alias.yml" /etc/xboard-node/ && echo -e "    ${ICON_OK} node_alias.yml"
+    rm -rf "$BACKUP_DIR"
+    echo -e "  ${ICON_OK} 配置恢复完成"
+    echo ""
+    
+    # 重启服务
+    if [ -n "$RUNNING_NODES" ]; then
+        echo -e "  ${ICON_INFO} 重启节点服务..."
+        for node in $RUNNING_NODES; do
+            systemctl start "xboard-node@$node" 2>/dev/null
+            echo -e "    ${ICON_OK} 启动节点: $node"
+        done
+        echo ""
+    fi
+    
+    systemctl start sync-nodes.timer 2>/dev/null
+    systemctl start update-xboard-node.timer 2>/dev/null
+    
+    echo -e "${green}╔══════════════════════════════════════════════════════════════╗${plain}"
+    echo -e "${green}║${plain}                                                              ${green}║${plain}"
+    echo -e "${green}║${plain}           ${ICON_OK} 重新安装完成！配置已保留                  ${green}║${plain}"
+    echo -e "${green}║${plain}                                                              ${green}║${plain}"
+    echo -e "${green}╚══════════════════════════════════════════════════════════════╝${plain}"
+    echo ""
     
     if [[ $# == 0 ]]; then
         before_show_menu
@@ -1030,7 +1133,7 @@ show_update_menu() {
     echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     echo -e "  ${green}[1]${plain} 更新 xboard-node"
-    echo -e "  ${green}[2]${plain} 更新管理脚本"
+    echo -e "  ${green}[2]${plain} 重新安装（保留配置）"
     echo -e "  ${green}[3]${plain} 更新 sync-nodes"
     echo -e "  ${green}[0]${plain} 返回主菜单"
     echo ""
@@ -1129,7 +1232,7 @@ EOF
     echo -e "  ${green}[6]${plain} 查看日志（同步/更新）"
     echo -e "  ${green}[7]${plain} 开机自启（切换）"
     echo -e "  ${green}[8]${plain} 查看版本信息"
-    echo -e "  ${green}[9]${plain} 安装/重新安装"
+    echo -e "  ${green}[9]${plain} 安装（不保留配置）"
     echo -e "  ${green}[10]${plain} 卸载"
     echo -e "  ${green}[11]${plain} 退出脚本"
     echo -e "${cyan}────────────────────────────────────────────────────────────${plain}"
