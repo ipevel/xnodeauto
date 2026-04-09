@@ -297,8 +297,8 @@ fi
 # ---------- 7. 安装管理脚本 ----------
 show_step 7 9 "安装管理脚本"
 
-if wget -q -O /usr/bin/xnode "${REPO_RAW}/xnode.sh"; then
-    chmod +x /usr/bin/xnode
+if wget -q -O /usr/local/bin/xnode "${REPO_RAW}/xnode.sh"; then
+    chmod +x /usr/local/bin/xnode
     show_success "管理脚本安装完成"
 else
     show_error "下载失败"
