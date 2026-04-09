@@ -1197,19 +1197,13 @@ case "$1" in
         show_sync_log 1
         ;;
     update)
-        update 1
-        ;;
-    update-script)
-        update_script 1
-        ;;
-    update-sync)
-        update_sync_nodes 1
+        update_all 1
         ;;
     version)
         show_version 1
         ;;
     install)
-        install 1
+        install_all 1
         ;;
     uninstall)
         uninstall 1
