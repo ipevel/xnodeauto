@@ -29,6 +29,16 @@ alias_file="/etc/xboard-node/node_alias.yml"
 
 # ========== 工具函数 ==========
 
+# 操作完成后暂停等待，统一处理
+break_end() {
+    echo ""
+    echo -e "${green}${ICON_OK} 操作完成${plain}"
+    echo -n -e "${yellow}按任意键继续... ${plain}"
+    read -n 1 -s -r -p ""
+    echo ""
+    clear
+}
+
 # 带重试的 curl 调用
 retry_curl() {
     local url="$1"
@@ -830,40 +840,40 @@ show_update_log() {
 toggle_autostart() {
     echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
     echo -e "${cyan}│${plain} ${ICON_GEAR} 开机自启管理"
-    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
-    echo ""
+toggle_autostart() {
+    clear
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}开机自启管理${plain}"
+    echo -e "${cyan}------------------------${plain}"
 
-    # 检查当前状态
-    local sync_enabled=$(systemctl is-enabled sync-nodes.timer 2>/dev/null)
-    local update_enabled=$(systemctl is-enabled update-xboard-node.timer 2>/dev/null)
+    # 检查状态
+    local sync_timer=$(systemctl is-enabled sync-nodes.timer 2>/dev/null)
+    local update_timer=$(systemctl is-enabled update-xboard-node.timer 2>/dev/null)
 
-    echo -e "  ${purple}当前状态${plain}"
-    echo -e "  ${cyan}────────────────${plain}"
-
-    if [[ "$sync_enabled" == "enabled" ]]; then
-        echo -e "  节点同步: ${green}已启用${plain}"
+    if [[ "$sync_timer" == "enabled" ]]; then
+        echo -e "节点同步: ${green}已启用${plain}"
     else
-        echo -e "  节点同步: ${yellow}未启用${plain}"
+        echo -e "节点同步: ${yellow}未启用${plain}"
     fi
 
-    if [[ "$update_enabled" == "enabled" ]]; then
-        echo -e "  自动更新: ${green}已启用${plain}"
+    if [[ "$update_timer" == "enabled" ]]; then
+        echo -e "自动更新: ${green}已启用${plain}"
     else
-        echo -e "  自动更新: ${yellow}未启用${plain}"
+        echo -e "自动更新: ${yellow}未启用${plain}"
     fi
 
     echo ""
-    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "${cyan}│${plain} ${yellow}请选择操作${plain}"
-    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
-    echo ""
-    echo -e "  ${green}[1]${plain} 启用所有开机自启"
-    echo -e "  ${green}[2]${plain} 禁用所有开机自启"
-    echo -e "  ${green}[3]${plain} 仅启用节点同步"
-    echo -e "  ${green}[4]${plain} 仅启用自动更新"
-    echo -e "  ${green}[0]${plain} 返回"
-    echo ""
-    read -rp "  请选择 [0-4]: " choice
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}请选择操作${plain}"
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}1.  ${plain}启用所有开机自启"
+    echo -e "${cyan}2.  ${plain}禁用所有开机自启"
+    echo -e "${cyan}3.  ${plain}仅启用节点同步"
+    echo -e "${cyan}4.  ${plain}仅启用自动更新"
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}0.  ${plain}返回主菜单"
+    echo -e "${cyan}------------------------${plain}"
+    read -rp "请输入你的选择: " choice
 
     case "$choice" in
         1)
@@ -983,29 +993,30 @@ show_version() {
 
 show_node_management_menu() {
     while true; do
-        echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-        echo -e "${cyan}│${plain} ${ICON_NODE} 节点管理"
-        echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
-        echo ""
+        clear
+        echo -e "${cyan}------------------------${plain}"
+        echo -e "${cyan}节点管理${plain}"
+        echo -e "${cyan}------------------------${plain}"
 
         # 显示节点状态
         RUNNING_NODES=$(systemctl list-units --type=service --state=running | grep "xboard-node@" | wc -l)
         TOTAL_NODES=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v "sync.yml" | grep -v "node_alias.yml" | wc -l)
-        echo -e "  ${ICON_INFO} 运行中: ${green}${RUNNING_NODES}${plain} / 总数: ${TOTAL_NODES}"
+        echo -e "运行中: ${green}${RUNNING_NODES}${plain} / 总数: ${TOTAL_NODES}"
         echo ""
 
-        echo -e "  ${green}[1]${plain} 查看节点状态"
-        echo -e "  ${green}[2]${plain} 启动所有节点"
-        echo -e "  ${green}[3]${plain} 停止所有节点"
-        echo -e "  ${green}[4]${plain} 重启所有节点"
-        echo -e "  ${green}[5]${plain} 手动同步节点"
-        echo -e "  ${green}[6]${plain} 列出所有节点"
-        echo -e "  ${green}[7]${plain} 添加节点"
-        echo -e "  ${green}[8]${plain} 删除节点"
-        echo -e "  ${green}[9]${plain} 设置节点别名"
-        echo -e "  ${green}[0]${plain} 返回主菜单"
-        echo ""
-        read -rp "  请选择 [0-9]: " choice
+        echo -e "${cyan}1.  ${plain}查看节点状态"
+        echo -e "${cyan}2.  ${plain}启动所有节点"
+        echo -e "${cyan}3.  ${plain}停止所有节点"
+        echo -e "${cyan}4.  ${plain}重启所有节点"
+        echo -e "${cyan}5.  ${plain}手动同步节点"
+        echo -e "${cyan}6.  ${plain}列出所有节点"
+        echo -e "${cyan}7.  ${plain}添加节点"
+        echo -e "${cyan}8.  ${plain}删除节点"
+        echo -e "${cyan}9.  ${plain}设置节点别名"
+        echo -e "${cyan}------------------------${plain}"
+        echo -e "${cyan}0.  ${plain}返回主菜单"
+        echo -e "${cyan}------------------------${plain}"
+        read -rp "请输入你的选择: " choice
 
         case "$choice" in
             1) status ;;
@@ -1218,21 +1229,22 @@ install_all() {
 
 
 show_log_menu() {
-    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "${cyan}│${plain} ${ICON_INFO} 查看日志"
-    echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
-    echo ""
-    echo -e "  ${green}[1]${plain} 查看同步日志"
-    echo -e "  ${green}[2]${plain} 查看更新日志"
-    echo -e "  ${green}[0]${plain} 返回主菜单"
-    echo ""
-    read -rp "  请选择 [0-2]: " choice
+    clear
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}查看日志${plain}"
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}1.  ${plain}查看同步日志"
+    echo -e "${cyan}2.  ${plain}查看更新日志"
+    echo -e "${cyan}------------------------${plain}"
+    echo -e "${cyan}0.  ${plain}返回主菜单"
+    echo -e "${cyan}------------------------${plain}"
+    read -rp "请输入你的选择: " choice
 
     case "$choice" in
         1) show_sync_log ;;
         2) show_update_log ;;
-        0) show_menu ;;
-        *) echo -e "${red}${ICON_ERR} 无效选择${plain}" && show_log_menu ;;
+        0) clear && show_menu ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择${plain}" && sleep 1 && clear && show_log_menu ;;
     esac
 }
 
@@ -1240,48 +1252,43 @@ show_log_menu() {
 # ========== 主菜单 ==========
 
 show_menu() {
+    clear
     echo -e "${cyan}"
-    cat << 'EOF'
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║              ____  __                  __     __             ║
-║             / __ \/ /_  ___  ____  ____/ /__  / /_           ║
-║            / /_/ / __ \/ _ \/ __ \/ __  / _ \/ __/           ║
-║           / ____/ / / /  __/ / / / /_/ /  __/ /_             ║
-║          /_/   /_/ /_/\___/_/ /_/\__,_/\___/\__/             ║
-║                                                              ║
-║                  Node Auto-Sync 管理菜单                     ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
+cat << 'EOF'
+              ____  __                  __     __
+             / __ \/ /_  ___  ____  ____/ /__  / /_
+            / /_/ / __ \/ _ \/ __ \/ __  / _ \/ __/
+           / ____/ / / /  __/ / / / /_/ /  __/ /_
+          /_/   /_/ /_/\___/_/ /_/\__,_/\___/\__/
+
 EOF
-    echo -e "${plain}"
-    echo -e ""
-    echo -e "  ${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "  ${cyan}│${plain} ${yellow}主菜单${plain}                                                       "
-    echo -e "  ${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
-    echo -e "  ${green}[1]${plain} 修改配置文件"
-    echo -e "  ${green}[2]${plain} 查看版本信息"
-    echo -e "  ${green}[3]${plain} 节点管理"
-    echo -e "  ${green}[4]${plain} 查看日志"
-    echo -e "  ${green}[5]${plain} 开机自启"
-    echo -e "  ${green}[6]${plain} 更新"
-    echo -e "  ${green}[7]${plain} 安装"
-    echo -e "  ${green}[8]${plain} 卸载"
-    echo -e "  ${green}[0]${plain} 退出脚本"
-    echo -e "${cyan}────────────────────────────────────────────────────────────${plain}"
-    read -rp "  请选择 [0-8]: " choice
+echo -e "          XNode Auto-Sync 管理菜单${plain}"
+echo -e "命令行输入${yellow}xnode${cyan}可快速启动脚本${plain}"
+echo -e "${cyan}------------------------${plain}"
+echo -e "${cyan}1.  ${plain}安装"
+echo -e "${cyan}2.  ${plain}节点管理"
+echo -e "${cyan}3.  ${plain}修改配置文件"
+echo -e "${cyan}4.  ${plain}查看日志"
+echo -e "${cyan}5.  ${plain}更新"
+echo -e "${cyan}6.  ${plain}开机自启管理"
+echo -e "${cyan}7.  ${plain}查看版本信息"
+echo -e "${cyan}8.  ${plain}卸载"
+echo -e "${cyan}------------------------${plain}"
+echo -e "${cyan}0.  ${plain}退出脚本"
+echo -e "${cyan}------------------------${plain}"
+read -rp "请输入你的选择: " choice
 
     case "$choice" in
-        1) config ;;
-        2) show_version ;;
-        3) show_node_management_menu ;;
+        1) install_all ;;
+        2) show_node_management_menu ;;
+        3) config ;;
         4) show_log_menu ;;
-        5) toggle_autostart ;;
-        6) update_all ;;
-        7) install_all ;;
+        5) update_all ;;
+        6) toggle_autostart ;;
+        7) show_version ;;
         8) uninstall ;;
         0) echo -e "\n${green}再见!${plain}\n" && exit 0 ;;
-        *) echo -e "${red}${ICON_ERR} 无效选择,请重新输入${plain}" && sleep 1 && show_menu ;;
+        *) echo -e "${red}${ICON_ERR} 无效选择，请重新输入${plain}" && sleep 1 && clear && show_menu ;;
     esac
 }
 
