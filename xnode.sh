@@ -27,6 +27,35 @@ ICON_NODE="🔷"
 cur_dir=$(pwd)
 alias_file="/etc/xboard-node/node_alias.yml"
 
+# ========== 工具函数 ==========
+
+# 带重试的 curl 调用
+retry_curl() {
+    local url="$1"
+    local retries=3
+    local delay=2
+    
+    for i in $(seq 1 $retries); do
+        local result=$(curl -sL "$url" 2>/dev/null)
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+        [[ $i -lt $retries ]] && sleep $delay
+    done
+    return 1
+}
+
+# 版本比较函数 (version_gt "1.0.0" "0.9.0" -> true)
+version_gt() {
+    test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
+}
+
+# 版本比较函数 (version_ge "1.0.0" "1.0.0" -> true)
+version_ge() {
+    test "$(printf '%s\n' "$@" | sort -V | head -n 1)" == "$2"
+}
+
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}${ICON_ERR} 错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
@@ -90,10 +119,42 @@ get_alias() {
     fi
 }
 
-# 从面板获取节点名称（需要改进）
+# 从面板获取节点名称
 get_node_name_from_panel() {
     local node_id=$1
-    # TODO: 通过 API 获取节点名称
+    
+    # 检查配置文件是否存在
+    if [[ ! -f /etc/xboard-node/sync.yml ]]; then
+        echo ""
+        return
+    fi
+    
+    # 读取配置
+    local xboard_url=$(grep '^xboard_url:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+    local admin_path=$(grep '^admin_path:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+    local panel_token=$(grep '^panel_token:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+    
+    if [[ -z "$xboard_url" || -z "$admin_path" || -z "$panel_token" ]]; then
+        echo ""
+        return
+    fi
+    
+    # 调用面板 API 获取节点信息
+    local api_url="${xboard_url}/api/v2/${admin_path}/server/manage/fetch"
+    local response=$(curl -sL -X POST "$api_url" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${panel_token}" \
+        -d "{\"node_id\": ${node_id}}" 2>/dev/null)
+    
+    # 解析响应获取节点名称
+    if [[ -n "$response" ]]; then
+        local name=$(echo "$response" | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
+        if [[ -n "$name" ]]; then
+            echo "$name"
+            return
+        fi
+    fi
+    
     echo ""
 }
 
@@ -841,10 +902,23 @@ toggle_autostart() {
 # 从 GitHub 获取最新版本
 get_latest_version_from_github() {
     local repo="$1"
-    local latest_version=$(curl -sL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    if [[ -z "$latest_version" ]]; then
-        latest_version=$(curl -sL "https://api.github.com/repos/${repo}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    local response
+    local latest_version
+    
+    # 使用重试机制获取最新版本
+    response=$(retry_curl "https://api.github.com/repos/${repo}/releases/latest")
+    if [[ -n "$response" ]]; then
+        latest_version=$(echo "$response" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
     fi
+    
+    # 如果失败，尝试获取 releases 列表
+    if [[ -z "$latest_version" ]]; then
+        response=$(retry_curl "https://api.github.com/repos/${repo}/releases")
+        if [[ -n "$response" ]]; then
+            latest_version=$(echo "$response" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+        fi
+    fi
+    
     echo "${latest_version:-未知}"
 }
 
