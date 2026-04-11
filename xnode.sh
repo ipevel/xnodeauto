@@ -882,7 +882,7 @@ show_version() {
             latest_xb_ver="${yellow}${latest_xb_ver}${plain}"
         fi
         
-        echo -e "  xboard-node   ${current_xb_ver:0:18}    ${latest_xb_ver:0:18}      ${ICON_OK}"
+        echo -e "  xboard-node   ${current_xb_ver:0:18}          ${latest_xb_ver:0:18}      ${ICON_OK}"
     else
         local latest_xb_ver=$(get_latest_version_from_github "ipevel/Xboard-Node")
         if [[ "$latest_xb_ver" != "未知" ]]; then
@@ -910,7 +910,7 @@ show_version() {
             latest_sync_ver="${yellow}${latest_sync_ver}${plain}"
         fi
         
-        echo -e "  sync-nodes    ${current_sync_ver:0:18}    ${latest_sync_ver:0:18}      ${ICON_OK}"
+        echo -e "  sync-nodes    ${current_sync_ver:0:18}          ${latest_sync_ver:0:18}      ${ICON_OK}"
     else
         local latest_sync_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
         if [[ "$latest_sync_ver" != "未知" ]]; then
