@@ -921,9 +921,9 @@ show_version() {
         echo -e "  sync-nodes    ${red}未安装${plain}          ${latest_sync_ver:0:18}      ${ICON_ERR}"
     fi
     
-    # 管理脚本
-    local current_xnode_ver="v1.2.1"
-    local latest_xnode_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
+# 管理脚本
++    local current_xnode_ver="v1.2.4"
++    local latest_xnode_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
     if [[ "$latest_xnode_ver" != "未知" ]]; then
         latest_xnode_ver="${green}${latest_xnode_ver}${plain}"
     else
@@ -1079,12 +1079,14 @@ update_all() {
         echo -e "    ${ICON_ERR} xboard-node 下载失败"
     fi
     
-    # 下载管理脚本
+    # 下载管理脚本（先下载到临时文件，避免正在运行时覆盖出错）
     echo -e "    ${ICON_ARROW} xnode"
-    if wget -q -O /usr/local/bin/xnode "https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh?t=$(date +%s)"; then
-        chmod +x /usr/local/bin/xnode
+    if wget -q -O /tmp/xnode.tmp "https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh?t=$(date +%s)"; then
+        chmod +x /tmp/xnode.tmp
+        mv -f /tmp/xnode.tmp /usr/local/bin/xnode
         echo -e "    ${ICON_OK} xnode 更新完成"
     else
+        rm -f /tmp/xnode.tmp
         echo -e "    ${ICON_ERR} xnode 下载失败"
     fi
     
@@ -1096,12 +1098,14 @@ update_all() {
     systemctl daemon-reload
     echo -e "    ${ICON_OK} systemd 服务文件更新完成"
     
-    # 下载 update-xboard-node.sh
+    # 下载 update-xboard-node.sh（先下载到临时文件，避免正在运行时覆盖出错）
     echo -e "    ${ICON_ARROW} update-xboard-node.sh"
-    if wget -q -O /usr/local/bin/update-xboard-node.sh "https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-xboard-node.sh?t=$(date +%s)"; then
-        chmod +x /usr/local/bin/update-xboard-node.sh
+    if wget -q -O /tmp/update-xboard-node.tmp "https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-xboard-node.sh?t=$(date +%s)"; then
+        chmod +x /tmp/update-xboard-node.tmp
+        mv -f /tmp/update-xboard-node.tmp /usr/local/bin/update-xboard-node.sh
         echo -e "    ${ICON_OK} update-xboard-node.sh 更新完成"
     else
+        rm -f /tmp/update-xboard-node.tmp
         echo -e "    ${ICON_ERR} update-xboard-node.sh 下载失败"
     fi
     echo ""
