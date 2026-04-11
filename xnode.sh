@@ -838,33 +838,98 @@ toggle_autostart() {
 
 # ========== 版本信息 ==========
 
+# 从 GitHub 获取最新版本
+get_latest_version_from_github() {
+    local repo="$1"
+    local latest_version=$(curl -sL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    if [[ -z "$latest_version" ]]; then
+        latest_version=$(curl -sL "https://api.github.com/repos/${repo}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    fi
+    echo "${latest_version:-未知}"
+}
+
+# 提取版本号
+extract_version() {
+    local text="$1"
+    # 提取 v1.0.3 或 1.0.3 格式
+    echo "$text" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+[^[:space:]]*' | head -1
+}
+
 show_version() {
     echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
     echo -e "${cyan}│${plain} ${ICON_INFO} 版本信息"
     echo -e "${cyan}└──────────────────────────────────────────────────────────────┘${plain}"
     echo ""
     
-    echo -e "  ${purple}组件          版本        状态    ${plain}"
-    echo -e "  ${cyan}──────────────────────────────────${plain}"
+    # 获取最新版本
+    echo -e "  ${purple}组件          当前版本           最新版本         状态${plain}"
+    echo -e "  ${cyan}─────────────────────────────────────────────────────────${plain}"
     
     # xboard-node
     if [[ -f /usr/local/bin/xboard-node ]]; then
-        local xb_ver=$(/usr/local/bin/xboard-node -v 2>&1 | head -1 || echo "未知")
-        echo -e "  xboard-node   ${green}$xb_ver${plain}    ${ICON_OK}"
+        local current_xb_ver=$(/usr/local/bin/xboard-node -v 2>&1 | head -1)
+        local extracted_xb_ver=$(extract_version "$current_xb_ver")
+        if [[ -z "$extracted_xb_ver" ]]; then
+            current_xb_ver="${red}未知${plain}"
+        else
+            current_xb_ver="${green}${extracted_xb_ver}${plain}"
+        fi
+        
+        local latest_xb_ver=$(get_latest_version_from_github "ipevel/Xboard-Node")
+        if [[ "$latest_xb_ver" != "未知" ]]; then
+            latest_xb_ver="${green}${latest_xb_ver}${plain}"
+        else
+            latest_xb_ver="${yellow}${latest_xb_ver}${plain}"
+        fi
+        
+        echo -e "  xboard-node   ${current_xb_ver:0:18}    ${latest_xb_ver:0:18}      ${ICON_OK}"
     else
-        echo -e "  xboard-node   ${red}未安装${plain}      ${ICON_ERR}"
+        local latest_xb_ver=$(get_latest_version_from_github "ipevel/Xboard-Node")
+        if [[ "$latest_xb_ver" != "未知" ]]; then
+            latest_xb_ver="${green}${latest_xb_ver}${plain}"
+        else
+            latest_xb_ver="${yellow}${latest_xb_ver}${plain}"
+        fi
+        echo -e "  xboard-node   ${red}未安装${plain}          ${latest_xb_ver:0:18}      ${ICON_ERR}"
     fi
     
     # sync-nodes
     if [[ -f /usr/local/bin/sync-nodes ]]; then
-        local sync_ver=$(/usr/local/bin/sync-nodes -v 2>&1 | head -1 || echo "未知")
-        echo -e "  sync-nodes    ${green}$sync_ver${plain}    ${ICON_OK}"
+        local current_sync_ver=$(/usr/local/bin/sync-nodes -v 2>&1 | head -1)
+        local extracted_sync_ver=$(extract_version "$current_sync_ver")
+        if [[ -z "$extracted_sync_ver" ]]; then
+            current_sync_ver="${red}未知${plain}"
+        else
+            current_sync_ver="${green}${extracted_sync_ver}${plain}"
+        fi
+        
+        local latest_sync_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
+        if [[ "$latest_sync_ver" != "未知" ]]; then
+            latest_sync_ver="${green}${latest_sync_ver}${plain}"
+        else
+            latest_sync_ver="${yellow}${latest_sync_ver}${plain}"
+        fi
+        
+        echo -e "  sync-nodes    ${current_sync_ver:0:18}    ${latest_sync_ver:0:18}      ${ICON_OK}"
     else
-        echo -e "  sync-nodes    ${red}未安装${plain}      ${ICON_ERR}"
+        local latest_sync_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
+        if [[ "$latest_sync_ver" != "未知" ]]; then
+            latest_sync_ver="${green}${latest_sync_ver}${plain}"
+        else
+            latest_sync_ver="${yellow}${latest_sync_ver}${plain}"
+        fi
+        echo -e "  sync-nodes    ${red}未安装${plain}          ${latest_sync_ver:0:18}      ${ICON_ERR}"
     fi
     
     # 管理脚本
-    echo -e "  xnode         ${green}v1.2.1${plain}        ${ICON_OK}"
+    local current_xnode_ver="v1.2.1"
+    local latest_xnode_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
+    if [[ "$latest_xnode_ver" != "未知" ]]; then
+        latest_xnode_ver="${green}${latest_xnode_ver}${plain}"
+    else
+        latest_xnode_ver="${yellow}${latest_xnode_ver}${plain}"
+    fi
+    echo -e "  xnode         ${green}${current_xnode_ver}${plain}          ${latest_xnode_ver:0:18}      ${ICON_OK}"
     
     echo ""
     
@@ -991,6 +1056,11 @@ update_all() {
     [ -z "$SYNC_VERSION" ] && SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
     [ -z "$SYNC_VERSION" ] && SYNC_VERSION="v1.2.5"
     
+    # 获取 xboard-node 版本
+    XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/Xboard-Node/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    [ -z "$XBOARD_NODE_VERSION" ] && XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/Xboard-Node/releases" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    [ -z "$XBOARD_NODE_VERSION" ] && XBOARD_NODE_VERSION="v1.0.2"
+    
     # 下载 sync-nodes
     echo -e "    ${ICON_ARROW} sync-nodes ($SYNC_VERSION)"
     if wget -q --show-progress -O /usr/local/bin/sync-nodes "https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}" 2>&1; then
@@ -1001,8 +1071,8 @@ update_all() {
     fi
     
     # 下载 xboard-node
-    echo -e "    ${ICON_ARROW} xboard-node"
-    if wget -q --show-progress -O /usr/local/bin/xboard-node "https://github.com/ipevel/Xboard-Node/releases/latest/download/xboard-node-linux-${ARCH_SUFFIX}" 2>&1; then
+    echo -e "    ${ICON_ARROW} xboard-node ($XBOARD_NODE_VERSION)"
+    if wget -q --show-progress -O /usr/local/bin/xboard-node "https://github.com/ipevel/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}" 2>&1; then
         chmod +x /usr/local/bin/xboard-node
         echo -e "    ${ICON_OK} xboard-node 更新完成"
     else

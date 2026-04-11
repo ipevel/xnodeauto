@@ -176,7 +176,7 @@ show_success "检测到架构: ${cyan}${ARCH_SUFFIX}${plain}"
 show_step 2 9 "下载 xboard-node"
 
 show_info "获取最新版本..."
-XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/cedar2025/Xboard-Node/releases/latest" \
+XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/Xboard-Node/releases/latest" \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$XBOARD_NODE_VERSION" ]; then
@@ -186,7 +186,7 @@ fi
 
 show_success "版本: ${cyan}${XBOARD_NODE_VERSION}${plain}"
 
-DOWNLOAD_URL="https://github.com/cedar2025/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}"
+DOWNLOAD_URL="https://github.com/ipevel/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}"
 
 if [ -f /usr/local/bin/xboard-node ]; then
     show_warn "xboard-node 已存在，跳过下载"
