@@ -922,8 +922,8 @@ show_version() {
     fi
     
 # 管理脚本
-+    local current_xnode_ver="v1.2.4"
-+    local latest_xnode_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
+    local current_xnode_ver="v1.2.4"
+    local latest_xnode_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
     if [[ "$latest_xnode_ver" != "未知" ]]; then
         latest_xnode_ver="${green}${latest_xnode_ver}${plain}"
     else
