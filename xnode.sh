@@ -838,9 +838,6 @@ show_update_log() {
 # ========== 开机自启 ==========
 
 toggle_autostart() {
-    echo -e "${cyan}┌──────────────────────────────────────────────────────────────┐${plain}"
-    echo -e "${cyan}│${plain} ${ICON_GEAR} 开机自启管理"
-toggle_autostart() {
     clear
     echo -e "${cyan}------------------------${plain}"
     echo -e "${cyan}开机自启管理${plain}"
