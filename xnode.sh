@@ -1,17 +1,8 @@
 #!/bin/bash
 
 # ============================================================
-# Xboard Node Auto-Sync 管理脚本
+# XNode Auto-Sync 管理脚本
 # ============================================================
-
-# 颜色定义
-red='\033[0;31m'
-green='\033[0;32m'
-yellow='\033[0;33m'
-blue='\033[0;34m'
-purple='\033[0;35m'
-cyan='\033[0;36m'
-plain='\033[0m'
 
 # 图标 (纯文本)
 ICON_OK="[OK]"
@@ -276,11 +267,6 @@ config() {
         fi
         echo "${ICON_OK} 同步服务已重启"
     fi
-
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 uninstall() {
@@ -292,9 +278,6 @@ uninstall() {
     echo ""
     confirm "确定要卸载 xnodeauto 吗?" "n"
     if [[ $? != 0 ]]; then
-        if [[ $# == 0 ]]; then
-            show_menu
-        fi
         return 0
     fi
 
@@ -340,10 +323,6 @@ uninstall() {
     echo ""
     echo "${ICON_OK} 卸载完成"
 
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 # ========== 节点状态 ==========
@@ -431,10 +410,6 @@ status() {
 
     echo ""
 
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 # ========== 节点操作 ==========
@@ -478,10 +453,6 @@ start_all() {
     fi
 
     echo ""
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 stop_all() {
@@ -508,10 +479,6 @@ stop_all() {
     fi
 
     echo ""
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 restart_all() {
@@ -542,10 +509,6 @@ restart_all() {
     fi
 
     echo ""
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 # ========== 同步节点 ==========
@@ -567,10 +530,6 @@ sync() {
     /usr/local/bin/sync-nodes
 
     echo ""
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 # ========== 节点管理 ==========
@@ -637,10 +596,6 @@ list_nodes() {
     echo "[INFO] 设置别名: xnode set-alias <节点ID> <别名>"
     echo ""
 
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 add_node() {
@@ -744,10 +699,6 @@ add_node() {
     fi
 
     echo ""
-    if [[ $# -le 2 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 remove_node() {
@@ -789,10 +740,6 @@ remove_node() {
     echo ""
     echo "${ICON_OK} 节点 $node_id 已完全删除"
 
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 set_node_alias() {
@@ -820,11 +767,6 @@ show_sync_log() {
     else
         journalctl -u sync-nodes.service -n 50 --no-pager
     fi
-
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 show_update_log() {
@@ -837,11 +779,6 @@ show_update_log() {
         tail -n 50 /var/log/xboard-node-update.log
     else
         echo "[WARN] 日志文件不存在"
-    fi
-
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
     fi
 }
 
@@ -902,17 +839,16 @@ toggle_autostart() {
             echo "\n${ICON_OK} 已启用自动更新开机自启"
             ;;
         0)
-            # 返回主菜单
+            return
             ;;
         *)
             echo "\n${ICON_ERR} 无效选择"
             ;;
     esac
 
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
+    echo ""
+    echo -n "按 Enter 继续..."
+    read temp
 }
 
 # ========== 版本信息 ==========
@@ -990,10 +926,6 @@ show_version() {
     
     echo ""
 
-    if [[ $# == 0 ]]; then
-        before_show_menu
-        show_menu
-    fi
 }
 
 
@@ -1211,16 +1143,10 @@ update_all() {
 
     echo "============================================"
     echo "============================================"
+    echo "============================================"
     echo "更新完成!配置已保留"
     echo "============================================"
-    echo "============================================"
     echo ""
-
-    # 直接返回主菜单,不等待输入
-    if [[ $# == 0 ]]; then
-        echo ""
-        show_menu
-    fi
 }
 
 install_all() {
@@ -1232,21 +1158,11 @@ install_all() {
     echo ""
     confirm "确定要继续吗?" "n"
     if [[ $? != 0 ]]; then
-        if [[ $# == 0 ]]; then
-            show_menu
-        fi
         return 0
     fi
-    echo ""
 
     # 调用官方安装脚本
     bash <(curl -Ls https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)
-
-    # 直接返回主菜单,不等待输入
-    if [[ $# == 0 ]]; then
-        echo ""
-        show_menu
-    fi
 }
 
 
@@ -1255,23 +1171,29 @@ install_all() {
 
 
 show_log_menu() {
-    clear
-    echo "------------------------"
-    echo "查看日志"
-    echo "------------------------"
-    echo "1.  查看同步日志"
-    echo "2.  查看更新日志"
-    echo "------------------------"
-    echo "0.  返回主菜单"
-    echo "------------------------"
-    read -rp "请输入你的选择: " choice
+    while true; do
+        clear
+        echo "------------------------"
+        echo "查看日志"
+        echo "------------------------"
+        echo "1.  查看同步日志"
+        echo "2.  查看更新日志"
+        echo "------------------------"
+        echo "0.  返回主菜单"
+        echo "------------------------"
+        read -rp "请输入你的选择: " choice
 
-    case "$choice" in
-        1) show_sync_log ;;
-        2) show_update_log ;;
-        0) clear && show_menu ;;
-        *) echo "${ICON_ERR} 无效选择" && sleep 1 && clear && show_log_menu ;;
-    esac
+        case "$choice" in
+            1) show_sync_log ;;
+            2) show_update_log ;;
+            0) return ;;
+            *) echo "${ICON_ERR} 无效选择" && sleep 1 ;;
+        esac
+
+        echo ""
+        echo -n "按 Enter 继续..."
+        read temp
+    done
 }
 
 
