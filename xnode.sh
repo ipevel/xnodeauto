@@ -1260,42 +1260,35 @@ show_log_menu() {
 
 show_menu() {
     clear
-    echo -e "${cyan}"
-cat << 'EOF'
-              ____  __                  __     __
-             / __ \/ /_  ___  ____  ____/ /__  / /_
-            / /_/ / __ \/ _ \/ __ \/ __  / _ \/ __/
-           / ____/ / / /  __/ / / / /_/ /  __/ /_
-          /_/   /_/ /_/\___/_/ /_/\__,_/\___/\__/
-
-EOF
-echo -e "          XNode Auto-Sync 管理菜单${plain}"
-echo -e "命令行输入${yellow}xnode${cyan}可快速启动脚本${plain}"
-echo -e "${cyan}------------------------${plain}"
-echo -e "${cyan}1.  ${plain}安装"
-echo -e "${cyan}2.  ${plain}节点管理"
-echo -e "${cyan}3.  ${plain}修改配置文件"
-echo -e "${cyan}4.  ${plain}查看日志"
-echo -e "${cyan}5.  ${plain}更新"
-echo -e "${cyan}6.  ${plain}开机自启管理"
-echo -e "${cyan}7.  ${plain}查看版本信息"
-echo -e "${cyan}8.  ${plain}卸载"
-echo -e "${cyan}------------------------${plain}"
-echo -e "${cyan}0.  ${plain}退出脚本"
-echo -e "${cyan}------------------------${plain}"
-read -rp "请输入你的选择: " choice
+    echo "============================================"
+    echo "    XNode Auto-Sync 管理菜单"
+    echo "============================================"
+    echo ""
+    echo "  1. 版本信息"
+    echo "  2. 修改配置"
+    echo "  3. 节点管理"
+    echo "  4. 查看日志"
+    echo "  5. 开机自启"
+    echo "  6. 更新脚本"
+    echo "  7. 重新安装"
+    echo "  8. 卸载脚本"
+    echo ""
+    echo "  0. 退出脚本"
+    echo ""
+    echo "============================================"
+    read -rp "请输入你的选择: " choice
 
     case "$choice" in
-        1) install_all ;;
-        2) show_node_management_menu ;;
-        3) config ;;
+        1) show_version ;;
+        2) config ;;
+        3) show_node_management_menu ;;
         4) show_log_menu ;;
-        5) update_all ;;
-        6) toggle_autostart ;;
-        7) show_version ;;
+        5) toggle_autostart ;;
+        6) update_all ;;
+        7) install_all ;;
         8) uninstall ;;
-        0) echo -e "\n${green}再见!${plain}\n" && exit 0 ;;
-        *) echo -e "${red}${ICON_ERR} 无效选择，请重新输入${plain}" && sleep 1 && clear && show_menu ;;
+        0) echo "" && echo "再见!" && echo "" && exit 0 ;;
+        *) echo "无效选择，请重新输入" && sleep 1 && clear && show_menu ;;
     esac
 }
 
