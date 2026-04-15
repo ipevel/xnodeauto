@@ -269,8 +269,13 @@ config() {
     fi
 
     echo ""
-    echo -n "按 Enter 继续..."
-    read temp
+    echo "按 Enter 继续..."
+    # 非交互式环境下 read 会立即返回
+    if [ -t 0 ]; then
+        read temp
+    else
+        read -t 3 temp 2>/dev/null || true
+    fi
 }
 
 uninstall() {
@@ -775,8 +780,13 @@ show_sync_log() {
     fi
 
     echo ""
-    echo -n "按 Enter 继续..."
-    read temp
+    echo "按 Enter 继续..."
+    # 非交互式环境下 read 会立即返回
+    if [ -t 0 ]; then
+        read temp
+    else
+        read -t 3 temp 2>/dev/null || true
+    fi
 }
 
 show_update_log() {
@@ -792,8 +802,13 @@ show_update_log() {
     fi
 
     echo ""
-    echo -n "按 Enter 继续..."
-    read temp
+    echo "按 Enter 继续..."
+    # 非交互式环境下 read 会立即返回
+    if [ -t 0 ]; then
+        read temp
+    else
+        read -t 3 temp 2>/dev/null || true
+    fi
 }
 
 # ========== 开机自启 ==========
@@ -861,8 +876,13 @@ toggle_autostart() {
     esac
 
     echo ""
-    echo -n "按 Enter 继续..."
-    read temp
+    echo "按 Enter 继续..."
+    # 非交互式环境下 read 会立即返回
+    if [ -t 0 ]; then
+        read temp
+    else
+        read -t 3 temp 2>/dev/null || true
+    fi
 }
 
 # ========== 版本信息 ==========
@@ -939,8 +959,13 @@ show_version() {
     echo "  xnode            ${current_xnode_ver}"
     
     echo ""
-    echo -n "按 Enter 继续..."
-    read temp
+    echo "按 Enter 继续..."
+    # 非交互式环境下 read 会立即返回
+    if [ -t 0 ]; then
+        read temp
+    else
+        read -t 3 temp 2>/dev/null || true
+    fi
 }
 
 
