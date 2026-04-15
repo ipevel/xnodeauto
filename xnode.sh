@@ -63,8 +63,11 @@ version_gt() {
 
 # 版本比较函数 (version_ge "1.0.0" "1.0.0" -> true)
 version_ge() {
-    test "$(printf '%s\n' "$@" | sort -V | head -n 1)" == "$2"
+    # 检查 $1 >= $2
+    test "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" != "$1" -o "$1" = "$2"
 }
+
+# ========== 系统检查 ==========
 
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}${ICON_ERR} 错误:${plain} 必须使用root用户运行此脚本!\n" && exit 1
@@ -84,7 +87,7 @@ elif cat /proc/version | grep -Eqi "debian"; then
     release="debian"
 elif cat /proc/version | grep -Eqi "ubuntu"; then
     release="ubuntu"
-elif cat //proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux"; then
+elif cat /proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux"; then
     release="centos"
 else
     echo -e "${red}${ICON_ERR} 未检测到系统版本!${plain}\n"
@@ -153,8 +156,9 @@ get_node_name_from_panel() {
     local api_url="${xboard_url}/api/v2/${admin_path}/server/manage/fetch"
     local response=$(curl -sL -X POST "$api_url" \
         -H "Content-Type: application/json" \
-        -H "Authorization: Bearer ${panel_token}" \
+        -H "Authorization: Bearer ${panel_token:0:8}..." \
         -d "{\"node_id\": ${node_id}}" 2>/dev/null)
+
 
     # 解析响应获取节点名称
     if [[ -n "$response" ]]; then
@@ -219,7 +223,7 @@ confirm() {
     if [[ $# > 1 ]]; then
         echo && read -rp "$1 [默认$2]: " temp
         if [[ x"${temp}" == x"" ]]; then
-            temp=$2
+            temp="$2"
         fi
     else
         read -rp "$1 [y/n]: " temp
@@ -645,6 +649,12 @@ add_node() {
 
     if [[ -z "$node_id" ]]; then
         echo -e "${red}${ICON_ERR} 用法: xnode add-node <节点ID> [别名]${plain}"
+        return 1
+    fi
+    
+    # 验证节点ID必须是数字
+    if ! [[ "$node_id" =~ ^[0-9]+$ ]]; then
+        echo -e "${red}${ICON_ERR} 节点ID必须是数字${plain}"
         return 1
     fi
 

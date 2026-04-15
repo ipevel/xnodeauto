@@ -74,6 +74,12 @@ DOWNLOAD_URL="https://github.com/ipevel/Xboard-Node/releases/download/${LATEST_V
 
 wget -qO /tmp/xboard-node-new "$DOWNLOAD_URL" || {
     log "[ERROR] 下载失败"
+    # 尝试恢复备份
+    if [ -f "${XBOARD_NODE_BIN}.bak" ]; then
+        mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
+        chmod +x "$XBOARD_NODE_BIN"
+        log "[INFO] 已从备份恢复"
+    fi
     exit 1
 }
 
@@ -85,7 +91,18 @@ fi
 
 # ====== 替换二进制 ======
 log "[3/4] 替换二进制文件..."
-mv "$XBOARD_NODE_BIN" "${XBOARD_NODE_BIN}.bak"  # 备份旧版本
+if [ -f "$XBOARD_NODE_BIN" ]; then
+    mv "$XBOARD_NODE_BIN" "${XBOARD_NODE_BIN}.bak"  # 备份旧版本
+fi
+
+# 下载到临时文件后验证
+if ! /tmp/xboard-node-new -v >/dev/null 2>&1; then
+    log "[ERROR] 新版本验证失败，回滚..."
+    [ -f "${XBOARD_NODE_BIN}.bak" ] && mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
+    chmod +x "$XBOARD_NODE_BIN" 2>/dev/null || true
+    exit 1
+fi
+
 mv /tmp/xboard-node-new "$XBOARD_NODE_BIN"
 chmod +x "$XBOARD_NODE_BIN"
 
@@ -108,6 +125,30 @@ fi
 
 log "========== 更新完成 =========="
 log ""
+
+# ====== 更新管理脚本 ======
+log "[附加] 更新管理脚本..."
+REPO_RAW="https://raw.githubusercontent.com/ipevel/xnodeauto/main"
+
+# 更新 xnode 管理脚本
+if wget -q -O /tmp/xnode.tmp "${REPO_RAW}/xnode.sh?t=$(date +%s)"; then
+    chmod +x /tmp/xnode.tmp
+    mv -f /tmp/xnode.tmp /usr/local/bin/xnode
+    log "[INFO] xnode 管理脚本已更新"
+else
+    rm -f /tmp/xnode.tmp
+    log "[WARN] xnode 管理脚本更新失败"
+fi
+
+# 更新 update-xboard-node.sh 自身
+if wget -q -O /tmp/update-xboard-node.tmp "${REPO_RAW}/update-xboard-node.sh?t=$(date +%s)"; then
+    chmod +x /tmp/update-xboard-node.tmp
+    mv -f /tmp/update-xboard-node.tmp /usr/local/bin/update-xboard-node.sh
+    log "[INFO] update-xboard-node.sh 已更新"
+else
+    rm -f /tmp/update-xboard-node.tmp
+    log "[WARN] update-xboard-node.sh 更新失败"
+fi
 
 # 清理备份（7天后）
 find /usr/local/bin -name "xboard-node.bak.*" -mtime +7 -delete 2>/dev/null || true

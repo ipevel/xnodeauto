@@ -50,7 +50,7 @@ show_progress() {
 # 显示标题
 show_banner() {
     clear
-    echo -e \"${cyan}\"
+    echo -e "${cyan}"
     cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
@@ -64,10 +64,10 @@ show_banner() {
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 EOF
-    echo -e \"${plain}\"
-    echo -e \"  ${purple}版本:${plain} v1.2.4\"
-    echo -e \"  ${purple}仓库:${plain} https://github.com/ipevel/xnodeauto\"
-    echo \"\"
+    echo -e "${plain}"
+    echo -e "  ${purple}版本:${plain} v1.2.4"
+    echo -e "  ${purple}仓库:${plain} https://github.com/ipevel/xnodeauto"
+    echo ""
 }
 
 # 显示步骤标题
@@ -260,7 +260,7 @@ show_success "配置目录已创建: ${cyan}/etc/xboard-node${plain}"
 show_step 5 9 "安装 systemd 服务"
 
 show_info "下载服务文件..."
-local files=(
+files=(
     "xboard-node@.service"
     "sync-nodes.service"
     "sync-nodes.timer"
@@ -268,7 +268,7 @@ local files=(
     "update-xboard-node.timer"
 )
 
-local count=0
+count=0
 for file in "${files[@]}"; do
     count=$((count + 1))
     show_progress $count ${#files[@]} "下载 $file"
@@ -426,7 +426,7 @@ admin_password: "${ADMIN_PASSWORD}"
 panel_token: "${PANEL_TOKEN}"
 EOF
 
-chmod 600 /etc/xboard-node/sync.yml
+chmod 400 /etc/xboard-node/sync.yml
 show_success "配置已保存到 ${cyan}/etc/xboard-node/sync.yml${plain}"
 
 # 如果选择手动添加，让用户输入节点ID
