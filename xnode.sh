@@ -267,6 +267,10 @@ config() {
         fi
         echo "${ICON_OK} 同步服务已重启"
     fi
+
+    echo ""
+    echo -n "按 Enter 继续..."
+    read temp
 }
 
 uninstall() {
@@ -322,7 +326,9 @@ uninstall() {
 
     echo ""
     echo "${ICON_OK} 卸载完成"
-
+    echo ""
+    echo "再见!"
+    exit 0
 }
 
 # ========== 节点状态 ==========
@@ -767,6 +773,10 @@ show_sync_log() {
     else
         journalctl -u sync-nodes.service -n 50 --no-pager
     fi
+
+    echo ""
+    echo -n "按 Enter 继续..."
+    read temp
 }
 
 show_update_log() {
@@ -780,6 +790,10 @@ show_update_log() {
     else
         echo "[WARN] 日志文件不存在"
     fi
+
+    echo ""
+    echo -n "按 Enter 继续..."
+    read temp
 }
 
 # ========== 开机自启 ==========
@@ -925,7 +939,8 @@ show_version() {
     echo "  xnode            ${current_xnode_ver}"
     
     echo ""
-
+    echo -n "按 Enter 继续..."
+    read temp
 }
 
 
@@ -1147,6 +1162,9 @@ update_all() {
     echo "更新完成!配置已保留"
     echo "============================================"
     echo ""
+
+    echo -n "按 Enter 继续..."
+    read temp
 }
 
 install_all() {
