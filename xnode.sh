@@ -49,13 +49,13 @@ retry_curl() {
 
 # 版本比较函数 (version_gt "1.0.0" "0.9.0" -> true)
 version_gt() {
-    test "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" != "$1"
+    # $1 > $2: 排序后最小的不是$1，且$1不等于$2
+    [[ "$1" != "$2" ]] && [[ "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" != "$1" ]]
 }
 
 # 版本比较函数 (version_ge "1.0.0" "1.0.0" -> true)
 version_ge() {
-    # 检查 $1 >= $2
-    test "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" != "$1"
+    test "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" == "$2"
 }
 
 # ========== 系统检查 ==========
