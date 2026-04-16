@@ -65,7 +65,7 @@ show_banner() {
 ╚══════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${plain}"
-    echo -e "  ${purple}版本:${plain} v1.2.4"
+    echo -e "  ${green}版本:${plain} v1.2.5"
     echo -e "  ${purple}仓库:${plain} https://github.com/ipevel/xnodeauto"
     echo ""
 }
@@ -145,12 +145,7 @@ if [ -f /etc/os-release ]; then
     show_success "系统: $NAME $VERSION"
 fi
 
-show_info "更新软件包列表..."
-if apt update -y > /dev/null 2>&1; then
-    show_success "软件包列表已更新"
-else
-    show_warn "软件包列表更新失败，继续安装..."
-fi
+show_info "跳过软件包更新（如需更新请手动执行 apt update）"
 
 show_info "安装必要工具..."
 if apt install -y wget curl > /dev/null 2>&1; then
