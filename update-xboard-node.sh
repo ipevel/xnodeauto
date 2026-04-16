@@ -1,10 +1,9 @@
 #!/bin/bash
-set -e
 
 # ============================================================
-# Xboard-Node 自动更新脚本
-# 功能：检查并更新 xboard-node，保留所有运行中的节点
-# 定时：每天凌晨3点执行
+# Xboard-Node 手动更新脚本
+# 功能：手动更新 xboard-node 到最新版本
+# 用法：手动运行或 xnode update 调用
 # ============================================================
 
 LOG_FILE="/var/log/xboard-node-update.log"
@@ -26,7 +25,7 @@ case "$ARCH" in
         ;;
 esac
 
-log "========== 开始检查 xboard-node 更新 =========="
+log "========== 开始更新 xboard-node =========="
 
 # 获取最新版本
 LATEST_VERSION=$(wget -qO- "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
@@ -47,14 +46,6 @@ fi
 
 log "当前版本: $CURRENT_VERSION"
 
-# 比较版本
-if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ] || [ "$CURRENT_VERSION" = "v$LATEST_VERSION" ] || [ "v$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
-    log "[INFO] 已是最新版本 $LATEST_VERSION，无需更新"
-    exit 0
-fi
-
-log "[INFO] 发现新版本: $LATEST_VERSION (当前: $CURRENT_VERSION)，准备更新..."
-
 # ====== 停止所有运行中的节点 ======
 log "[1/4] 停止所有运行中的节点..."
 RUNNING_NODES=$(systemctl list-units --all --no-legend --plain "xboard-node@*.service" | grep "xboard-node@" | awk '{print $1}')
@@ -74,12 +65,6 @@ DOWNLOAD_URL="https://github.com/ipevel/Xboard-Node/releases/download/${LATEST_V
 
 wget -qO /tmp/xboard-node-new "$DOWNLOAD_URL" || {
     log "[ERROR] 下载失败"
-    # 尝试恢复备份
-    if [ -f "${XBOARD_NODE_BIN}.bak" ]; then
-        mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
-        chmod +x "$XBOARD_NODE_BIN"
-        log "[INFO] 已从备份恢复"
-    fi
     exit 1
 }
 
@@ -92,26 +77,7 @@ fi
 # ====== 替换二进制 ======
 log "[3/4] 替换二进制文件..."
 if [ -f "$XBOARD_NODE_BIN" ]; then
-    mv "$XBOARD_NODE_BIN" "${XBOARD_NODE_BIN}.bak"  # 备份旧版本
-fi
-
-# 下载到临时文件后验证
-if ! /tmp/xboard-node-new -v >/dev/null 2>&1; then
-    log "[ERROR] 新版本验证失败，尝试回滚..."
-    rm -f /tmp/xboard-node-new
-    # 回滚后验证备份是否正常
-    if [ -f "${XBOARD_NODE_BIN}.bak" ]; then
-        mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
-        chmod +x "$XBOARD_NODE_BIN" 2>/dev/null || true
-        if ! $XBOARD_NODE_BIN -v >/dev/null 2>&1; then
-            log "[ERROR] 备份版本也损坏，节点将离线，请 manual 处理"
-        else
-            log "[INFO] 已回滚到之前的版本"
-        fi
-    else
-        log "[WARN] 没有备份文件，将保持当前版本"
-    fi
-    # 验证失败继续尝试启动节点，不要直接退出
+    mv "$XBOARD_NODE_BIN" "${XBOARD_NODE_BIN}.bak"
 fi
 
 mv /tmp/xboard-node-new "$XBOARD_NODE_BIN"
@@ -137,29 +103,5 @@ fi
 log "========== 更新完成 =========="
 log ""
 
-# ====== 更新管理脚本 ======
-log "[附加] 更新管理脚本..."
-REPO_RAW="https://raw.githubusercontent.com/ipevel/xnodeauto/main"
-
-# 更新 xnode 管理脚本
-if wget -q -O /tmp/xnode.tmp "${REPO_RAW}/xnode.sh?t=$(date +%s)"; then
-    chmod +x /tmp/xnode.tmp
-    mv -f /tmp/xnode.tmp /usr/local/bin/xnode
-    log "[INFO] xnode 管理脚本已更新"
-else
-    rm -f /tmp/xnode.tmp
-    log "[WARN] xnode 管理脚本更新失败"
-fi
-
-# 更新 update-xboard-node.sh 自身
-if wget -q -O /tmp/update-xboard-node.tmp "${REPO_RAW}/update-xboard-node.sh?t=$(date +%s)"; then
-    chmod +x /tmp/update-xboard-node.tmp
-    mv -f /tmp/update-xboard-node.tmp /usr/local/bin/update-xboard-node.sh
-    log "[INFO] update-xboard-node.sh 已更新"
-else
-    rm -f /tmp/update-xboard-node.tmp
-    log "[WARN] update-xboard-node.sh 更新失败"
-fi
-
-# 清理备份（7天后）
+# 清理备份
 find /usr/local/bin -name "xboard-node.bak.*" -mtime +7 -delete 2>/dev/null || true
