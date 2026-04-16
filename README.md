@@ -12,9 +12,9 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 
 - 自动同步 - 自动同步面板节点操作
 - 多节点支持 - 支持多节点和中转机
-- 自动更新 - 每天凌晨3点自动更新 xboard-node
+- 手动更新 - 手动更新 xboard-node 到最新版本
 - 别名管理 - 节点别名便于识别
-- 开机自启 - 节点同步和自动更新可设置开机自启
+- 开机自启 - 节点同步可设置开机自启
 
 ## 管理菜单
 
@@ -42,7 +42,7 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 | `xnode stop` | 停止所有节点 |
 | `xnode restart` | 重启所有节点 |
 | `xnode sync` | 手动同步节点 |
-| `xnode update` | 更新所有组件 |
+| `xnode update` | 手动更新 xboard-node |
 | `xnode list-nodes` | 查看节点列表 |
 | `xnode add-node <ID> [别名]` | 添加节点 |
 | `xnode remove-node <ID>` | 删除节点 |
@@ -65,7 +65,7 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 /usr/local/bin/
 ├── xboard-node              # 节点程序
 ├── sync-nodes               # 同步程序
-├── update-xboard-node.sh    # 自动更新脚本
+├── update-xboard-node.sh     # 手动更新脚本
 └── xnode                    # 管理脚本
 
 /etc/xboard-node/
@@ -77,7 +77,6 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 ## 定时任务
 
 - `sync-nodes.timer` - 节点自动同步（默认每小时）
-- `update-xboard-node.timer` - xboard-node 自动更新（每天凌晨3点）
 
 ## 维护
 
