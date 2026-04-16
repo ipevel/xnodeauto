@@ -98,9 +98,20 @@ fi
 # 下载到临时文件后验证
 if ! /tmp/xboard-node-new -v >/dev/null 2>&1; then
     log "[ERROR] 新版本验证失败，尝试回滚..."
-    [ -f "${XBOARD_NODE_BIN}.bak" ] && mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
-    chmod +x "$XBOARD_NODE_BIN" 2>/dev/null || true
-    # 验证失败也应该尝试启动，不要直接退出
+    rm -f /tmp/xboard-node-new
+    # 回滚后验证备份是否正常
+    if [ -f "${XBOARD_NODE_BIN}.bak" ]; then
+        mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
+        chmod +x "$XBOARD_NODE_BIN" 2>/dev/null || true
+        if ! $XBOARD_NODE_BIN -v >/dev/null 2>&1; then
+            log "[ERROR] 备份版本也损坏，节点将离线，请 manual 处理"
+        else
+            log "[INFO] 已回滚到之前的版本"
+        fi
+    else
+        log "[WARN] 没有备份文件，将保持当前版本"
+    fi
+    # 验证失败继续尝试启动节点，不要直接退出
 fi
 
 mv /tmp/xboard-node-new "$XBOARD_NODE_BIN"
