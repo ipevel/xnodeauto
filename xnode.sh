@@ -55,7 +55,7 @@ version_gt() {
 # 版本比较函数 (version_ge "1.0.0" "1.0.0" -> true)
 version_ge() {
     # 检查 $1 >= $2
-    test "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" != "$1" -o "$1" = "$2"
+    test "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" != "$1"
 }
 
 # ========== 系统检查 ==========
