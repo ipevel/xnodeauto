@@ -1,0 +1,10 @@
+[Unit]
+Description=Run update-xboard-node every day
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=24h
+Unit=update-xboard-node.service
+
+[Install]
+WantedBy=timers.target

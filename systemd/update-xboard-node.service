@@ -1,0 +1,6 @@
+[Unit]
+Description=Update Xboard-Node automatic
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update-xboard-node.sh
