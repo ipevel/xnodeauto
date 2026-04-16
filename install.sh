@@ -71,7 +71,7 @@ done
 
 # 开始安装
 echo "Xboard Node Auto-Sync 安装脚本"
-echo "版本: v1.2.6"
+echo "版本: v1.2.7"
 echo "仓库: https://github.com/ipevel/xnodeauto"
 echo ""
 
@@ -127,9 +127,9 @@ DOWNLOAD_URL="https://github.com/ipevel/Xboard-Node/releases/download/${XBOARD_N
 if [ -f /usr/local/bin/xboard-node ]; then
     show_warn "xboard-node 已存在，跳过下载"
 else
-    show_info "下载中..."
+    echo "  下载: xboard-node (大文件，约50MB)"
     
-    if wget -q -O /usr/local/bin/xboard-node "$DOWNLOAD_URL" 2>&1; then
+    if wget --timeout=300 -q -O /usr/local/bin/xboard-node "$DOWNLOAD_URL" 2>&1; then
         if [ -s /usr/local/bin/xboard-node ]; then
             chmod +x /usr/local/bin/xboard-node
             show_success "下载完成"
@@ -138,7 +138,7 @@ else
             exit 1
         fi
     else
-        show_error "下载失败"
+        show_error "下载失败（网络超时）"
         exit 1
     fi
 fi
@@ -167,9 +167,9 @@ show_success "版本: $SYNC_VERSION"
 
 SYNC_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}"
 
-show_info "下载中..."
+echo "  下载: sync-nodes"
 
-if wget -q -O /usr/local/bin/sync-nodes "$SYNC_URL" 2>&1; then
+if wget --timeout=60 -q -O /usr/local/bin/sync-nodes "$SYNC_URL" 2>&1; then
     if [ -s /usr/local/bin/sync-nodes ]; then
         chmod +x /usr/local/bin/sync-nodes
         show_success "下载完成"
@@ -203,7 +203,8 @@ files=(
 )
 
 for file in "${files[@]}"; do
-    if wget -q -O "/etc/systemd/system/$file" "${REPO_RAW}/systemd/$file"; then
+    echo "  下载: $file"
+    if wget --timeout=30 -q -O "/etc/systemd/system/$file" "${REPO_RAW}/systemd/$file"; then
         show_success "下载 $file"
     else
         show_error "下载 $file 失败"
@@ -216,7 +217,8 @@ show_success "服务文件安装完成"
 # ---------- 6. 安装自动更新脚本 ----------
 show_step 6 9 "安装自动更新脚本"
 
-if wget -q -O /usr/local/bin/update-xboard-node.sh "${REPO_RAW}/update-xboard-node.sh"; then
+echo "  下载: update-xboard-node.sh"
+if wget --timeout=30 -q -O /usr/local/bin/update-xboard-node.sh "${REPO_RAW}/update-xboard-node.sh"; then
     chmod +x /usr/local/bin/update-xboard-node.sh
     show_success "自动更新脚本安装完成"
 else
@@ -227,7 +229,8 @@ fi
 # ---------- 7. 安装管理脚本 ----------
 show_step 7 9 "安装管理脚本"
 
-if wget -q -O /usr/local/bin/xnode "${REPO_RAW}/xnode.sh"; then
+echo "  下载: xnode"
+if wget --timeout=30 -q -O /usr/local/bin/xnode "${REPO_RAW}/xnode.sh"; then
     chmod +x /usr/local/bin/xnode
     show_success "管理脚本安装完成"
 else
