@@ -145,10 +145,16 @@ get_node_name_from_panel() {
 
     # 调用面板 API 获取节点信息
     local api_url="${xboard_url}/api/v2/${admin_path}/server/manage/fetch"
+    # node_id 必须是纯数字，校验后用于 JSON 构建
+    if [[ ! "$node_id" =~ ^[0-9]+$ ]]; then
+        echo "[ERROR] Invalid node_id: $node_id"
+        return
+    fi
+    local json_payload="{\"node_id\": ${node_id}}"
     local response=$(curl -sL -X POST "$api_url" \
         -H "Content-Type: application/json" \
-        -H "Authorization: Bearer ${panel_token:0:8}..." \
-        -d "{\"node_id\": ${node_id}}" 2>/dev/null)
+        -H "Authorization: Bearer ${panel_token}" \
+        -d "$json_payload" 2>/dev/null)
 
 
     # 解析响应获取节点名称
@@ -665,6 +671,11 @@ add_node() {
     fi
 
     # 添加到配置文件
+    # node_id 必须是纯数字，防 sed 注入
+    if [[ ! "$node_id" =~ ^[0-9]+$ ]]; then
+        echo "${ICON_ERR} 无效的节点ID: $node_id（必须为纯数字）"
+        return 1
+    fi
     if [[ -f /etc/xboard-node/sync.yml ]]; then
         if grep -q "manual_node_ids:" /etc/xboard-node/sync.yml; then
             # 已有 manual_node_ids,检查是否为空数组
@@ -725,12 +736,17 @@ remove_node() {
     echo "============================================"
     echo ""
 
+    # 安全校验
+    if [[ ! "$node_id" =~ ^[0-9]+$ ]]; then
+        echo "${ICON_ERR} 无效的节点ID: $node_id"
+        return 1
+    fi
     local alias=$(get_alias "$node_id")
 
     # 停止并禁用服务
     echo "[->] 停止节点 $node_id ($alias)..."
-    systemctl stop xboard-node@$node_id.service 2>/dev/null
-    systemctl disable xboard-node@$node_id.service 2>/dev/null
+    systemctl stop "xboard-node@${node_id}.service" 2>/dev/null
+    systemctl disable "xboard-node@${node_id}.service" 2>/dev/null
     echo "[OK] 服务已停止"
 
     # 删除配置文件
@@ -739,9 +755,9 @@ remove_node() {
         echo "[OK] 配置文件已删除"
     fi
 
-    # 从 sync.yml 移除
+    # 从 sync.yml 移除（精确匹配）
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        sed -i "/^  - $node_id$/d" /etc/xboard-node/sync.yml
+        sed -i "/^  - ${node_id}$/d" /etc/xboard-node/sync.yml
         echo "[OK] 已从配置中移除"
     fi
 
