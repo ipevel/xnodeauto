@@ -88,7 +88,26 @@ fi
 
 show_info "跳过软件包更新（如需更新请手动执行 apt update）"
 
-show_info "安装必要工具..."
+show_info "安装必要工具（wget, curl, yq）..."
+REQUIRED_PKGS="wget curl yq"
+# yq is optional but recommended for safe YAML parsing
+if ! command -v yq &>/dev/null; then
+    show_info "安装 yq (YAML 解析工具)..."
+    YQ_VERSION="v4.44.2"
+    YQ_ARCH=""
+    case "$ARCH" in
+        x86_64)  YQ_ARCH="amd64" ;;
+        aarch64) YQ_ARCH="arm64" ;;
+    esac
+    if [ -n "$YQ_ARCH" ]; then
+        if wget --timeout=30 -q -O /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}"; then
+            chmod +x /usr/local/bin/yq
+            show_success "yq 安装完成"
+        else
+            show_warn "yq 安装失败，将使用 grep/awk 解析 YAML（功能不受影响）"
+        fi
+    fi
+fi
 if apt install -y wget curl > /dev/null 2>&1; then
     show_success "工具安装完成"
 else

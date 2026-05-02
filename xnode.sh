@@ -133,10 +133,17 @@ get_node_name_from_panel() {
         return
     fi
 
-    # 读取配置
-    local xboard_url=$(grep '^xboard_url:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
-    local admin_path=$(grep '^admin_path:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
-    local panel_token=$(grep '^panel_token:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+    # 读取配置（优先用 yq，fallback 到 grep/awk）
+    local xboard_url admin_path panel_token
+    if command -v yq &>/dev/null; then
+        xboard_url=$(yq -r '.xboard_url' /etc/xboard-node/sync.yml 2>/dev/null)
+        admin_path=$(yq -r '.admin_path' /etc/xboard-node/sync.yml 2>/dev/null)
+        panel_token=$(yq -r '.panel_token' /etc/xboard-node/sync.yml 2>/dev/null)
+    else
+        xboard_url=$(grep '^xboard_url:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+        admin_path=$(grep '^admin_path:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+        panel_token=$(grep '^panel_token:' /etc/xboard-node/sync.yml 2>/dev/null | awk '{print $2}' | tr -d '"')
+    fi
 
     if [[ -z "$xboard_url" || -z "$admin_path" || -z "$panel_token" ]]; then
         echo ""
