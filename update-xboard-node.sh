@@ -74,17 +74,34 @@ if [ ! -s /tmp/xboard-node-new ]; then
     exit 1
 fi
 
+# 基础安全校验：检查文件是否可执行
+if [ ! -x /tmp/xboard-node-new ]; then
+    log "[ERROR] 下载的文件无执行权限"
+    exit 1
+fi
+
+# 检查文件 magic bytes (ELF magic)
+if ! head -c 4 /tmp/xboard-node-new 2>/dev/null | grep -q $'\x7fELF'; then
+    log "[ERROR] 下载的文件不是有效的 ELF 可执行文件"
+    exit 1
+fi
+
 # ====== 替换二进制 ======
 log "[3/4] 替换二进制文件..."
 if [ -f "$XBOARD_NODE_BIN" ]; then
-    mv "$XBOARD_NODE_BIN" "${XBOARD_NODE_BIN}.bak"
+    cp "$XBOARD_NODE_BIN" "${XBOARD_NODE_BIN}.bak"
 fi
 
-mv /tmp/xboard-node-new "$XBOARD_NODE_BIN"
+mv -f /tmp/xboard-node-new "$XBOARD_NODE_BIN"
 chmod +x "$XBOARD_NODE_BIN"
 
 # 验证新版本
 NEW_VERSION=$($XBOARD_NODE_BIN -v 2>&1 | head -1 || echo "未知")
+if [ "$NEW_VERSION" = "未知" ]; then
+    log "[ERROR] 新版本验证失败，回滚到备份..."
+    [ -f "${XBOARD_NODE_BIN}.bak" ] && mv "${XBOARD_NODE_BIN}.bak" "$XBOARD_NODE_BIN"
+    exit 1
+fi
 log "新版本已安装: $NEW_VERSION"
 
 # ====== 启动之前停止的节点 ======

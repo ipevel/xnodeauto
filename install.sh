@@ -260,6 +260,16 @@ if [ -z "$XBOARD_URL" ] || [ -z "$ADMIN_PATH" ] || [ -z "$ADMIN_EMAIL" ] || [ -z
         show_error "面板地址不能为空"
         read -rp "请输入面板地址: " XBOARD_URL
     done
+    # 校验 HTTPS
+    if [[ ! "$XBOARD_URL" =~ ^https:// ]]; then
+        show_error "面板地址必须使用 HTTPS 协议！"
+        read -rp "请重新输入面板地址: " XBOARD_URL
+    fi
+    # 校验 URL 格式
+    if [[ ! "$XBOARD_URL" =~ ^https://[^/]+ ]]; then
+        show_error "面板地址格式无效！"
+        read -rp "请重新输入面板地址: " XBOARD_URL
+    fi
     
     # 后台路径
     echo ""
@@ -343,8 +353,8 @@ admin_password: "${ADMIN_PASSWORD}"
 panel_token: "${PANEL_TOKEN}"
 EOF
 
-chmod 400 /etc/xboard-node/sync.yml
-show_success "配置已保存到 /etc/xboard-node/sync.yml"
+chmod 600 /etc/xboard-node/sync.yml
+show_success "配置已保存到 /etc/xboard-node/sync.yml (权限 600)"
 
 # 如果选择手动添加，让用户输入节点ID
 if [ "$SYNC_MODE" = "manual" ]; then
