@@ -4,3 +4,5 @@ Description=Sync Xboard nodes to local systemd instances
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/sync-nodes
+NoNewPrivileges=yes
+PrivateTmp=yes

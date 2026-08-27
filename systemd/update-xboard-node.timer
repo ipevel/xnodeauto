@@ -4,6 +4,8 @@ Description=Run update-xboard-node every day
 [Timer]
 OnBootSec=5min
 OnUnitActiveSec=24h
+RandomizedDelaySec=5min
+Persistent=true
 Unit=update-xboard-node.service
 
 [Install]

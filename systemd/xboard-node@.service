@@ -9,6 +9,8 @@ ExecStart=/usr/local/bin/xboard-node -c /etc/xboard-node/%i.yml
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=1048576
+NoNewPrivileges=yes
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target

@@ -37,6 +37,16 @@ show_info() {
     echo "  [INFO] $1"
 }
 
+# 校验 YAML 值：拒绝会破坏 YAML 引号结构的字符（双引号）
+validate_yaml_value() {
+    local name="$1" value="$2"
+    if [[ "$value" == *'"'* ]]; then
+        show_error "$name 不能包含双引号 (\") 字符"
+        return 1
+    fi
+    return 0
+}
+
 # 检查 root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -54,13 +64,14 @@ ADMIN_PATH=""
 ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
 PANEL_TOKEN=""
+CLI_ARG_PASSWORD=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --url)            XBOARD_URL="$2";     shift 2 ;;
         --admin-path)     ADMIN_PATH="$2";     shift 2 ;;
         --admin-email)    ADMIN_EMAIL="$2";    shift 2 ;;
-        --admin-password) ADMIN_PASSWORD="$2";  shift 2 ;;
+        --admin-password) ADMIN_PASSWORD="$2"; CLI_ARG_PASSWORD=1; shift 2 ;;
         --panel-token)    PANEL_TOKEN="$2";    shift 2 ;;
         *)
             show_error "未知参数: $1"
@@ -69,9 +80,16 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# 允许通过环境变量提供密码/密钥（避免出现在 ps 命令行中）；显式 CLI 参数优先
+[ -z "$ADMIN_PASSWORD" ] && ADMIN_PASSWORD="${XBOARD_ADMIN_PASSWORD:-}"
+[ -z "$PANEL_TOKEN" ] && PANEL_TOKEN="${XBOARD_PANEL_TOKEN:-}"
+if [ "$CLI_ARG_PASSWORD" -eq 1 ]; then
+    show_warn "密码通过命令行参数传入，会被 ps 看到；建议改用交互式安装或环境变量 XBOARD_ADMIN_PASSWORD / XBOARD_PANEL_TOKEN"
+fi
+
 # 开始安装
 echo "Xboard Node Auto-Sync 安装脚本"
-echo "版本: v1.2.7"
+echo "版本: v1.2.8"
 echo "仓库: https://github.com/ipevel/xnodeauto"
 echo ""
 
@@ -100,10 +118,12 @@ if ! command -v yq &>/dev/null; then
         aarch64) YQ_ARCH="arm64" ;;
     esac
     if [ -n "$YQ_ARCH" ]; then
-        if wget --timeout=30 -q -O /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}"; then
+        if wget --timeout=30 -q -O /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" \
+            && [ -s /usr/local/bin/yq ] && head -c 4 /usr/local/bin/yq 2>/dev/null | grep -q $'\x7fELF'; then
             chmod +x /usr/local/bin/yq
             show_success "yq 安装完成"
         else
+            rm -f /usr/local/bin/yq
             show_warn "yq 安装失败，将使用 grep/awk 解析 YAML（功能不受影响）"
         fi
     fi
@@ -131,12 +151,12 @@ show_success "检测到架构: $ARCH_SUFFIX"
 show_step 2 9 "下载 xboard-node"
 
 show_info "获取最新版本..."
-XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/Xboard-Node/releases/latest" \
+XBOARD_NODE_VERSION=$(curl -sL --connect-timeout 5 --max-time 15 "https://api.github.com/repos/ipevel/Xboard-Node/releases/latest" \
   | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$XBOARD_NODE_VERSION" ]; then
-    show_warn "无法获取最新版本，使用 v1.0.2"
-    XBOARD_NODE_VERSION="v1.0.2"
+    show_error "无法获取 xboard-node 最新版本，中止安装（请检查网络/GitHub API 访问后重试）"
+    exit 1
 fi
 
 show_success "版本: $XBOARD_NODE_VERSION"
@@ -149,11 +169,12 @@ else
     echo "  下载: xboard-node (大文件，约50MB)"
     
     if wget --timeout=300 -q -O /usr/local/bin/xboard-node "$DOWNLOAD_URL" 2>&1; then
-        if [ -s /usr/local/bin/xboard-node ]; then
+        if [ -s /usr/local/bin/xboard-node ] && head -c 4 /usr/local/bin/xboard-node 2>/dev/null | grep -q $'\x7fELF'; then
             chmod +x /usr/local/bin/xboard-node
             show_success "下载完成"
         else
-            show_error "下载失败：文件为空"
+            rm -f /usr/local/bin/xboard-node
+            show_error "下载失败：文件为空或不是有效的可执行文件"
             exit 1
         fi
     else
@@ -167,19 +188,19 @@ show_step 3 9 "下载 sync-nodes"
 
 show_info "获取最新版本..."
 
-# 尝试获取最新正式版本
-SYNC_VERSION=$(curl -sL "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+# 尝试获取最新正式版本（带超时）
+SYNC_VERSION=$(curl -sL --connect-timeout 5 --max-time 15 "$REPO_API" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
 # 如果没有正式版本，获取最新的 beta 版本
 if [ -z "$SYNC_VERSION" ]; then
     show_info "未找到正式版本，查找 beta 版本..."
-    SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases" | \
+    SYNC_VERSION=$(curl -sL --connect-timeout 5 --max-time 15 "https://api.github.com/repos/ipevel/xnodeauto/releases" | \
         grep '"tag_name"' | head -1 | cut -d'"' -f4)
 fi
 
 if [ -z "$SYNC_VERSION" ]; then
-    show_warn "无法获取版本，使用 v1.2.1-beta"
-    SYNC_VERSION="v1.2.1-beta"
+    show_error "无法获取 sync-nodes 最新版本，中止安装（请检查网络/GitHub API 访问后重试）"
+    exit 1
 fi
 
 show_success "版本: $SYNC_VERSION"
@@ -189,11 +210,12 @@ SYNC_URL="https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/
 echo "  下载: sync-nodes"
 
 if wget --timeout=60 -q -O /usr/local/bin/sync-nodes "$SYNC_URL" 2>&1; then
-    if [ -s /usr/local/bin/sync-nodes ]; then
+    if [ -s /usr/local/bin/sync-nodes ] && head -c 4 /usr/local/bin/sync-nodes 2>/dev/null | grep -q $'\x7fELF'; then
         chmod +x /usr/local/bin/sync-nodes
         show_success "下载完成"
     else
-        show_error "下载失败：文件为空"
+        rm -f /usr/local/bin/sync-nodes
+        show_error "下载失败：文件为空或不是有效的可执行文件"
         exit 1
     fi
 else
@@ -274,62 +296,58 @@ if [ -z "$XBOARD_URL" ] || [ -z "$ADMIN_PATH" ] || [ -z "$ADMIN_EMAIL" ] || [ -z
     # 面板地址
     echo "面板地址是你的 Xboard 网站地址"
     echo "示例: https://panel.example.com"
-    read -rp "请输入面板地址: " XBOARD_URL
-    while [ -z "$XBOARD_URL" ]; do
-        show_error "面板地址不能为空"
-        read -rp "请输入面板地址: " XBOARD_URL
+    read -rp "请输入面板地址: " XBOARD_URL || exit 1
+    while [ -z "$XBOARD_URL" ] || ! [[ "$XBOARD_URL" =~ ^https://[^/]+ ]]; do
+        if [ -z "$XBOARD_URL" ]; then
+            show_error "面板地址不能为空"
+        elif ! [[ "$XBOARD_URL" =~ ^https:// ]]; then
+            show_error "面板地址必须使用 HTTPS 协议！"
+        else
+            show_error "面板地址格式无效！"
+        fi
+        read -rp "请重新输入面板地址: " XBOARD_URL || exit 1
     done
-    # 校验 HTTPS
-    if [[ ! "$XBOARD_URL" =~ ^https:// ]]; then
-        show_error "面板地址必须使用 HTTPS 协议！"
-        read -rp "请重新输入面板地址: " XBOARD_URL
-    fi
-    # 校验 URL 格式
-    if [[ ! "$XBOARD_URL" =~ ^https://[^/]+ ]]; then
-        show_error "面板地址格式无效！"
-        read -rp "请重新输入面板地址: " XBOARD_URL
-    fi
     
     # 后台路径
     echo ""
     echo "后台路径是登录后台 URL 中的一段"
     echo "示例: 后台是 https://panel.example.com/abc12345#/"
     echo "路径就是 abc12345"
-    read -rp "请输入后台路径: " ADMIN_PATH
+    read -rp "请输入后台路径: " ADMIN_PATH || exit 1
     while [ -z "$ADMIN_PATH" ]; do
         show_error "后台路径不能为空"
-        read -rp "请输入后台路径: " ADMIN_PATH
+        read -rp "请输入后台路径: " ADMIN_PATH || exit 1
     done
     
     # 管理员邮箱
     echo ""
     echo "管理员邮箱是你登录后台使用的邮箱"
     echo "示例: admin@example.com"
-    read -rp "请输入管理员邮箱: " ADMIN_EMAIL
+    read -rp "请输入管理员邮箱: " ADMIN_EMAIL || exit 1
     while [ -z "$ADMIN_EMAIL" ]; do
         show_error "管理员邮箱不能为空"
-        read -rp "请输入管理员邮箱: " ADMIN_EMAIL
+        read -rp "请输入管理员邮箱: " ADMIN_EMAIL || exit 1
     done
     
     # 管理员密码
     echo ""
     echo "管理员密码是你登录后台使用的密码"
-    read -rsp "请输入管理员密码: " ADMIN_PASSWORD
+    read -rsp "请输入管理员密码: " ADMIN_PASSWORD || exit 1
     echo ""
     while [ -z "$ADMIN_PASSWORD" ]; do
         show_error "管理员密码不能为空"
-        read -rsp "请输入管理员密码: " ADMIN_PASSWORD
+        read -rsp "请输入管理员密码: " ADMIN_PASSWORD || exit 1
         echo ""
     done
     
     # 节点通信密钥
     echo ""
     echo "节点通信密钥在 后台 -> 系统设置 -> 节点通信密钥"
-    read -rsp "请输入节点通信密钥: " PANEL_TOKEN
+    read -rsp "请输入节点通信密钥: " PANEL_TOKEN || exit 1
     echo ""
     while [ -z "$PANEL_TOKEN" ]; do
         show_error "节点通信密钥不能为空"
-        read -rsp "请输入节点通信密钥: " PANEL_TOKEN
+        read -rsp "请输入节点通信密钥: " PANEL_TOKEN || exit 1
         echo ""
     done
 fi
@@ -363,7 +381,10 @@ case "$SYNC_MODE" in
         ;;
 esac
 
-# 写入配置
+# 写入配置（先校验所有值，避免破坏 YAML 结构）
+for pair in "面板地址:$XBOARD_URL" "后台路径:$ADMIN_PATH" "管理员邮箱:$ADMIN_EMAIL" "管理员密码:$ADMIN_PASSWORD" "节点通信密钥:$PANEL_TOKEN"; do
+    validate_yaml_value "${pair%%:*}" "${pair#*:}" || exit 1
+done
 cat > /etc/xboard-node/sync.yml << EOF
 xboard_url: "${XBOARD_URL}"
 admin_path: "${ADMIN_PATH}"
@@ -383,29 +404,38 @@ if [ "$SYNC_MODE" = "manual" ]; then
     echo "请输入节点ID，多个ID用逗号分隔（例如: 1,2,3）"
     echo "如果暂时不添加，请直接按回车跳过"
     echo ""
-    read -rp "请输入节点ID: " NODE_IDS_INPUT
+    read -rp "请输入节点ID: " NODE_IDS_INPUT || exit 1
+    NODE_IDS=()
     
     if [ -n "$NODE_IDS_INPUT" ]; then
-        # 解析节点ID（支持逗号分隔）
-        IFS=',' read -ra NODE_IDS <<< "$NODE_IDS_INPUT"
-        
-        if [ ${#NODE_IDS[@]} -gt 0 ]; then
-            echo ""
-            echo "添加节点ID: ${NODE_IDS[*]}"
-            echo ""
-            
-            # 写入配置文件
-            echo "" >> /etc/xboard-node/sync.yml
-            echo "# 手动指定的节点ID" >> /etc/xboard-node/sync.yml
-            echo "manual_node_ids:" >> /etc/xboard-node/sync.yml
-            for id in "${NODE_IDS[@]}"; do
-                # 去除空格
-                id=$(echo "$id" | tr -d ' ')
-                echo "  - $id" >> /etc/xboard-node/sync.yml
-            done
-            
-            show_success "已添加 ${#NODE_IDS[@]} 个节点到配置"
-        fi
+        # 解析节点ID（支持逗号分隔），校验必须为纯数字
+        IFS=',' read -ra NODE_IDS_ALL <<< "$NODE_IDS_INPUT"
+        NODE_IDS=()
+        for id in "${NODE_IDS_ALL[@]}"; do
+            id=$(echo "$id" | tr -d ' ')
+            if [[ "$id" =~ ^[0-9]+$ ]]; then
+                NODE_IDS+=("$id")
+            else
+                show_warn "忽略无效节点ID: '$id'（必须为纯数字）"
+            fi
+        done
+    fi
+
+    # 写入节点配置（无有效 ID 时写空数组）
+    if [ ${#NODE_IDS[@]} -gt 0 ]; then
+        echo ""
+        echo "添加节点ID: ${NODE_IDS[*]}"
+        echo ""
+
+        # 写入配置文件
+        echo "" >> /etc/xboard-node/sync.yml
+        echo "# 手动指定的节点ID" >> /etc/xboard-node/sync.yml
+        echo "manual_node_ids:" >> /etc/xboard-node/sync.yml
+        for id in "${NODE_IDS[@]}"; do
+            echo "  - $id" >> /etc/xboard-node/sync.yml
+        done
+
+        show_success "已添加 ${#NODE_IDS[@]} 个节点到配置"
     else
         # 没有输入节点ID，创建空的手动配置
         echo "" >> /etc/xboard-node/sync.yml
@@ -423,9 +453,20 @@ echo "安装完成！正在执行首次同步..."
 echo "====================================="
 echo ""
 
-# 执行首次同步
+# 执行首次同步（失败不中断安装，但明确提示并保留定时器持续重试）
 echo "首次同步..."
-/usr/local/bin/sync-nodes
+FIRST_SYNC_OK=0
+if /usr/local/bin/sync-nodes; then
+    FIRST_SYNC_OK=1
+    show_success "首次同步完成"
+else
+    echo ""
+    show_error "首次同步失败！请检查面板配置 (xboard_url/admin_path/管理员账号/节点通信密钥) 与网络"
+    echo ""
+    echo "  [INFO] 稍后可重试: xnode sync"
+    echo "  [INFO] 查看状态: xnode status"
+    echo ""
+fi
 
 # 启动定时服务
 echo ""
@@ -437,7 +478,11 @@ show_success "定时服务已启动"
 # 最终提示
 echo ""
 echo "====================================="
-echo "全部完成！"
+if [ "$FIRST_SYNC_OK" = "1" ]; then
+    echo "全部完成！"
+else
+    echo "安装完成，但首次同步失败！"
+fi
 echo "====================================="
 echo ""
 echo "常用命令："

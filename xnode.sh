@@ -9,40 +9,28 @@ ICON_OK="[OK]"
 ICON_ERR="[ERR]"
 ICON_WARN="[WARN]"
 ICON_INFO="[INFO]"
-ICON_ROCKET="[->]"
-ICON_GEAR="[GEAR]"
-ICON_CHECK="[OK]"
 ICON_ARROW="[->]"
-ICON_NODE="[NODE]"
 
-cur_dir=$(pwd)
+# 脚本版本（发布时与 install.sh 横幅、git tag 同步更新）
+XNODE_VERSION="v1.2.8"
+
 alias_file="/etc/xboard-node/node_alias.yml"
 
 # ========== 工具函数 ==========
 
-# 操作完成后暂停等待，统一处理
-break_end() {
-    echo ""
-    echo "${ICON_OK} 操作完成"
-    echo -n -e "按任意键继续... "
-    read -n 1 -s -r -p ""
-    echo ""
-    clear
-}
-
-# 带重试的 curl 调用
+# 带重试的 curl 调用（带连接/总超时）
 retry_curl() {
     local url="$1"
     local retries=3
     local delay=2
-
-    for i in $(seq 1 $retries); do
-        local result=$(curl -sL "$url" 2>/dev/null)
+    local i
+    for ((i=1; i<=retries; i++)); do
+        local result=$(curl -sL --connect-timeout 5 --max-time 15 "$url" 2>/dev/null)
         if [[ -n "$result" ]]; then
             echo "$result"
             return 0
         fi
-        [[ $i -lt $retries ]] && sleep $delay
+        [[ $i -lt $retries ]] && sleep "$delay"
     done
     return 1
 }
@@ -60,28 +48,33 @@ version_ge() {
 
 # ========== 系统检查 ==========
 
-# check root
-[[ $EUID -ne 0 ]] && echo "${ICON_ERR} 错误: 必须使用root用户运行此脚本!\n" && exit 1
+# check root（只读命令 status/version/log/help 放行，其余子命令与菜单要求 root）
+readonly_cmds=" status version log help "
+if [[ $EUID -ne 0 ]] && [[ ! "$readonly_cmds" == *" ${1:-} "* ]]; then
+    echo "${ICON_ERR} 错误: 必须使用root用户运行此脚本!"
+    echo "  提示: status/version/log 等只读命令无需 root；写操作需 root"
+    exit 1
+fi
 
-# check os
+# check os（仅信息展示；本工具面向 systemd 发行版，如 Debian/Ubuntu）
 if [[ -f /etc/redhat-release ]]; then
     release="centos"
-elif cat /etc/issue | grep -Eqi "alpine"; then
+elif grep -Eqi "alpine" /etc/issue 2>/dev/null; then
     release="alpine"
-elif cat /etc/issue | grep -Eqi "debian"; then
+elif grep -Eqi "debian" /etc/issue 2>/dev/null; then
     release="debian"
-elif cat /etc/issue | grep -Eqi "ubuntu"; then
+elif grep -Eqi "ubuntu" /etc/issue 2>/dev/null; then
     release="ubuntu"
-elif cat /etc/issue | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux"; then
+elif grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux" /etc/issue 2>/dev/null; then
     release="centos"
-elif cat /proc/version | grep -Eqi "debian"; then
+elif grep -Eqi "debian" /proc/version 2>/dev/null; then
     release="debian"
-elif cat /proc/version | grep -Eqi "ubuntu"; then
+elif grep -Eqi "ubuntu" /proc/version 2>/dev/null; then
     release="ubuntu"
-elif cat /proc/version | grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux"; then
+elif grep -Eqi "centos|red hat|redhat|rocky|alma|oracle linux" /proc/version 2>/dev/null; then
     release="centos"
 else
-    echo "${ICON_ERR} 未检测到系统版本!\n"
+    echo "${ICON_ERR} 未检测到系统版本!（本工具要求 systemd 发行版）"
 fi
 
 # ========== 别名管理 ==========
@@ -158,7 +151,8 @@ get_node_name_from_panel() {
         return
     fi
     local json_payload="{\"node_id\": ${node_id}}"
-    local response=$(curl -sL -X POST "$api_url" \
+    # 面板 API：加连接/总超时并禁止跟随重定向（防止凭据被转发到第三方域）
+    local response=$(curl -sL --connect-timeout 5 --max-time 10 --max-redirs 0 -X POST "$api_url" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${panel_token}" \
         -d "$json_payload" 2>/dev/null)
@@ -199,32 +193,10 @@ remove_alias() {
     fi
 }
 
-# ========== 进度条显示 ==========
-
-show_progress() {
-    local current=$1
-    local total=$2
-    local desc="$3"
-    local width=40
-    local percent=$((current * 100 / total))
-    local filled=$((current * width / total))
-    local empty=$((width - filled))
-
-    printf "\r  [GEAR] ${desc} ["
-    for ((i=0; i<filled; i++)); do printf "█"; done
-    printf ""
-    for ((i=0; i<empty; i++)); do printf "░"; done
-    printf "] %3d%%" "$percent"
-
-    if [ $current -eq $total ]; then
-        echo ""
-    fi
-}
-
 # ========== 显示函数 ==========
 
 confirm() {
-    if [[ $# > 1 ]]; then
+    if [[ $# -gt 1 ]]; then
         echo && read -rp "$1 [默认$2]: " temp
         if [[ x"${temp}" == x"" ]]; then
             temp="$2"
@@ -267,17 +239,22 @@ config() {
     echo ""
     echo "[INFO] 配置文件路径: /etc/xboard-node/sync.yml"
     echo ""
-    vi /etc/xboard-node/sync.yml
+    # 编辑器选择：${EDITOR:-vi}，缺失时回退 nano
+    local editor="${EDITOR:-vi}"
+    if ! command -v "$editor" >/dev/null 2>&1; then
+        if command -v nano >/dev/null 2>&1; then
+            editor="nano"
+        else
+            echo "${ICON_ERR} 未找到可用编辑器 (vi/nano)，请先安装"
+            return 1
+        fi
+    fi
+    "$editor" /etc/xboard-node/sync.yml
 
     echo ""
     echo "${ICON_WARN} 配置已修改,是否重启同步服务?"
-    confirm "重启同步服务"
-    if [[ $? == 0 ]]; then
-        if [[ x"${release}" == x"alpine" ]]; then
-            rc-service sync-nodes restart
-        else
-            systemctl restart sync-nodes.service
-        fi
+    if confirm "重启同步服务"; then
+        systemctl restart sync-nodes.service
         echo "${ICON_OK} 同步服务已重启"
     fi
 
@@ -447,11 +424,11 @@ start_all() {
     # 读取 sync.yml 获取节点列表
     if [[ -f /etc/xboard-node/sync.yml ]]; then
         # 从配置文件读取 manual_node_ids
-        local node_ids=$(grep -A 100 "manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
+        local node_ids=$(grep -A 100 "^manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
 
         if [[ -z "$node_ids" ]]; then
-            # 如果没有 manual_node_ids,尝试从配置文件中查找
-            node_ids=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v sync.yml | xargs -I {} basename {} .yml)
+            # 如果没有 manual_node_ids,尝试从配置文件中查找（排除 sync.yml 与 node_alias.yml）
+            node_ids=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v -e sync.yml -e node_alias.yml | xargs -I {} basename {} .yml)
         fi
 
         if [[ -z "$node_ids" ]]; then
@@ -462,13 +439,13 @@ start_all() {
             for id in $node_ids; do
                 local alias=$(get_alias "$id")
                 echo "[->] 启动节点 $id ($alias)..."
-                systemctl enable xboard-node@$id.service 2>/dev/null
-                systemctl start xboard-node@$id.service 2>/dev/null
+                systemctl enable "xboard-node@${id}.service" 2>/dev/null
+                systemctl start "xboard-node@${id}.service" 2>/dev/null
 
-                if systemctl is-active xboard-node@$id.service > /dev/null 2>&1; then
+                if systemctl is-active "xboard-node@${id}.service" > /dev/null 2>&1; then
                     echo "[OK] 节点 $id 已启动"
                 else
-                    echo "[ERR] 节点 $id 启动失败"
+                    echo "[ERR] 节点 $id 启动失败（journalctl -u xboard-node@${id}.service -n 20）"
                 fi
             done
         fi
@@ -551,9 +528,26 @@ sync() {
         return 1
     fi
 
+    # 并发锁：防止与定时同步/更新任务同时运行
+    exec 9>/var/lock/xnode-sync.lock 2>/dev/null || true
+    if ! flock -n 9 2>/dev/null; then
+        exec 9>&- 2>/dev/null || true
+        echo "${ICON_WARN} 已有同步任务在运行，本次跳过"
+        return 1
+    fi
+
     /usr/local/bin/sync-nodes
+    local rc=$?
+    flock -u 9 2>/dev/null
+    exec 9>&- 2>/dev/null || true
+    if [[ $rc -ne 0 ]]; then
+        echo "${ICON_ERR} 同步失败 (退出码 $rc)，请检查面板配置与网络"
+    else
+        echo "${ICON_OK} 同步完成"
+    fi
 
     echo ""
+    return $rc
 }
 
 # ========== 节点管理 ==========
@@ -569,14 +563,14 @@ list_nodes() {
 
     # 读取配置的节点
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        local node_ids=$(grep -A 100 "manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
+        local node_ids=$(grep -A 100 "^manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
 
         if [[ -z "$node_ids" ]]; then
             echo "[INFO] 使用自动同步模式(未配置手动节点)"
             echo ""
 
-            # 显示配置文件中的节点
-            local config_nodes=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v sync.yml)
+            # 显示配置文件中的节点（排除 sync.yml 与 node_alias.yml）
+            local config_nodes=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v -e sync.yml -e node_alias.yml)
             if [[ -n "$config_nodes" ]]; then
                 echo "  节点ID  别名              状态      "
                 echo "------  ----------------  ------"
@@ -584,7 +578,7 @@ list_nodes() {
                 for config_file in $config_nodes; do
                     local node_id=$(basename "$config_file" .yml)
                     local alias="${node_aliases[$node_id]:-节点$node_id}"
-                    local status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                    local status=$(systemctl is-active "xboard-node@${node_id}.service" 2>/dev/null || echo "inactive")
 
                     if [[ "$status" == "active" ]]; then
                         status_text="● 运行中"
@@ -601,7 +595,7 @@ list_nodes() {
 
             for id in $node_ids; do
                 local alias="${node_aliases[$id]:-节点$id}"
-                local status=$(systemctl is-active xboard-node@$id.service 2>/dev/null || echo "inactive")
+                local status=$(systemctl is-active "xboard-node@${id}.service" 2>/dev/null || echo "inactive")
 
                 if [[ "$status" == "active" ]]; then
                     status_text="● 运行中"
@@ -620,6 +614,27 @@ list_nodes() {
     echo "[INFO] 设置别名: xnode set-alias <节点ID> <别名>"
     echo ""
 
+}
+
+# 向 sync.yml 的 manual_node_ids 列表末尾追加节点（yq 优先，fallback awk；node_id 须已通过数字校验）
+append_manual_node_id() {
+    local node_id="$1"
+    local tmp_file
+    if command -v yq &>/dev/null; then
+        if yq -i ".manual_node_ids = ((.manual_node_ids // []) + [${node_id}])" /etc/xboard-node/sync.yml 2>/dev/null; then
+            return 0
+        fi
+    fi
+    # fallback: 在 manual_node_ids 段最后一条 "- id" 后追加
+    tmp_file="$(mktemp /etc/xboard-node/sync.yml.XXXXXX)"
+    awk -v id="$node_id" '
+        /^manual_node_ids:/ { inlist=1; print; next }
+        inlist && /^  - / { last_line=$0; next }
+        inlist && !/^  - / { if (last_line != "") print "  - " id; print; if (!/^[[:space:]]*$/) inlist=0 }
+        !inlist { print }
+        END { if (inlist) print "  - " id }
+    ' /etc/xboard-node/sync.yml > "$tmp_file" && mv -f "$tmp_file" /etc/xboard-node/sync.yml
+    rm -f "$tmp_file"
 }
 
 add_node() {
@@ -644,19 +659,19 @@ add_node() {
 
     # 检查是否已在配置中
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        if grep -q "manual_node_ids:" /etc/xboard-node/sync.yml; then
-            if grep -E "  - $node_id$" /etc/xboard-node/sync.yml > /dev/null; then
+        if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
+            if grep -E "^  - $node_id$" /etc/xboard-node/sync.yml > /dev/null; then
                 echo "${ICON_WARN} 节点 $node_id 已在配置中"
 
                 # 检查节点是否在运行
-                local status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                local status=$(systemctl is-active "xboard-node@${node_id}.service" 2>/dev/null || echo "inactive")
                 if [[ "$status" == "active" ]]; then
                     echo "${ICON_OK} 节点 $node_id 正在运行"
                 else
                     echo "${ICON_WARN} 节点 $node_id 未运行,正在启动..."
-                    systemctl start xboard-node@$node_id.service
+                    systemctl start "xboard-node@${node_id}.service"
                     sleep 2
-                    status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                    status=$(systemctl is-active "xboard-node@${node_id}.service" 2>/dev/null || echo "inactive")
                     if [[ "$status" == "active" ]]; then
                         echo "${ICON_OK} 节点 $node_id 已启动"
                     else
@@ -669,7 +684,7 @@ add_node() {
                     set_alias "$node_id" "$alias"
                 fi
 
-                if [[ $# -le 2 ]]; then
+                if [[ $# -ge 3 && "$3" == "menu" ]]; then
                     before_show_menu
                 fi
                 return 0
@@ -684,14 +699,14 @@ add_node() {
         return 1
     fi
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        if grep -q "manual_node_ids:" /etc/xboard-node/sync.yml; then
+        if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
             # 已有 manual_node_ids,检查是否为空数组
-            if grep -q "manual_node_ids: \[\]" /etc/xboard-node/sync.yml; then
+            if grep -qE "^manual_node_ids: \[\]" /etc/xboard-node/sync.yml; then
                 # 替换空数组
-                sed -i "s/manual_node_ids: \[\]/manual_node_ids:\n  - $node_id/" /etc/xboard-node/sync.yml
+                sed -i "s/^manual_node_ids: \[\]$/manual_node_ids:\n  - $node_id/" /etc/xboard-node/sync.yml
             else
-                # 添加到列表
-                sed -i "/manual_node_ids:/a \ \ - $node_id" /etc/xboard-node/sync.yml
+                # 追加到列表末尾（顺序与添加顺序一致）
+                append_manual_node_id "$node_id"
             fi
         else
             # 没有 manual_node_ids,添加到文件末尾
@@ -714,17 +729,19 @@ add_node() {
     # 执行同步
     echo ""
     echo "${ICON_ARROW} 执行同步..."
-    /usr/local/bin/sync-nodes
+    if ! /usr/local/bin/sync-nodes; then
+        echo "${ICON_WARN} 同步返回失败，请检查面板配置与网络后重试: xnode sync"
+    fi
 
     # 验证节点是否启动
     echo ""
     sleep 2
-    local status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+    local status=$(systemctl is-active "xboard-node@${node_id}.service" 2>/dev/null || echo "inactive")
     if [[ "$status" == "active" ]]; then
         echo "${ICON_OK} 节点 $node_id 已成功启动"
     else
         echo "${ICON_ERR} 节点 $node_id 启动失败,请检查日志"
-        echo "${ICON_INFO} 查看日志: journalctl -u xboard-node@$node_id.service -n 20"
+        echo "${ICON_INFO} 查看日志: journalctl -u xboard-node@${node_id}.service -n 20"
     fi
 
     echo ""
@@ -796,11 +813,7 @@ show_sync_log() {
     echo "============================================"
     echo ""
 
-    if [[ x"${release}" == x"alpine" ]]; then
-        journalctl -u sync-nodes.service -n 50 --no-pager
-    else
-        journalctl -u sync-nodes.service -n 50 --no-pager
-    fi
+    journalctl -u sync-nodes.service -n 50 --no-pager
 
     echo ""
     echo "按 Enter 继续..."
@@ -869,32 +882,37 @@ toggle_autostart() {
     echo "------------------------"
     echo "0.  返回主菜单"
     echo "------------------------"
-    read -rp "请输入你的选择: " choice
+    read -rp "请输入你的选择: " choice || return
 
     case "$choice" in
         1)
             systemctl enable sync-nodes.timer
             systemctl enable update-xboard-node.timer
-            echo "\n${ICON_OK} 已启用所有开机自启"
+            echo ""
+            echo "${ICON_OK} 已启用所有开机自启"
             ;;
         2)
             systemctl disable sync-nodes.timer
             systemctl disable update-xboard-node.timer
-            echo "\n${ICON_OK} 已禁用所有开机自启"
+            echo ""
+            echo "${ICON_OK} 已禁用所有开机自启"
             ;;
         3)
             systemctl enable sync-nodes.timer
-            echo "\n${ICON_OK} 已启用节点同步开机自启"
+            echo ""
+            echo "${ICON_OK} 已启用节点同步开机自启"
             ;;
         4)
             systemctl enable update-xboard-node.timer
-            echo "\n${ICON_OK} 已启用自动更新开机自启"
+            echo ""
+            echo "${ICON_OK} 已启用自动更新开机自启"
             ;;
         0)
             return
             ;;
         *)
-            echo "\n${ICON_ERR} 无效选择"
+            echo ""
+            echo "${ICON_ERR} 无效选择"
             ;;
     esac
 
@@ -978,8 +996,13 @@ show_version() {
     fi
 
     # 管理脚本
-    local current_xnode_ver="v1.2.5"
-    echo "  xnode            ${current_xnode_ver}"
+    local current_xnode_ver="$XNODE_VERSION"
+    local latest_xnode_ver=$(get_latest_version_from_github "ipevel/xnodeauto")
+    if [[ "$latest_xnode_ver" != "未知" ]] && version_gt "$latest_xnode_ver" "$current_xnode_ver"; then
+        echo "  xnode            ${current_xnode_ver}  (可更新: ${latest_xnode_ver})"
+    else
+        echo "  xnode            ${current_xnode_ver}"
+    fi
     
     echo ""
     echo "按 Enter 继续..."
@@ -1017,7 +1040,7 @@ show_node_management_menu() {
                 for config_file in $config_nodes; do
                     node_id=$(basename "$config_file" .yml)
                     alias="${node_aliases[$node_id]:-节点$node_id}"
-                    status=$(systemctl is-active xboard-node@$node_id.service 2>/dev/null || echo "inactive")
+                    status=$(systemctl is-active "xboard-node@${node_id}.service" 2>/dev/null || echo "inactive")
                     if [[ "$status" == "active" ]]; then
                         status_text="运行中"
                     else
@@ -1040,7 +1063,7 @@ show_node_management_menu() {
         echo "0. 返回主菜单"
         echo ""
         echo "-----------------------"
-        read -rp "请输入你的选择: " choice
+        read -rp "请输入你的选择: " choice || return
 
         case "$choice" in
             1) start_all ;;
@@ -1049,7 +1072,7 @@ show_node_management_menu() {
             4)
                 read -rp "  请输入节点ID: " node_id
                 read -rp "  请输入节点别名(可选): " alias
-                add_node "$node_id" "$alias"
+                add_node "$node_id" "$alias" menu
                 ;;
             5)
                 read -rp "  请输入节点ID: " node_id
@@ -1065,7 +1088,7 @@ show_node_management_menu() {
         esac
 
         echo ""
-        read -rp "  按 Enter 继续..."
+        read -rp "  按 Enter 继续..." || break
     done
 }
 
@@ -1084,9 +1107,22 @@ update_all() {
         return 1
     fi
 
-    # 备份配置
-    BACKUP_DIR="/tmp/xnode-backup-$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$BACKUP_DIR"
+    local fail_count=0
+
+    # 并发锁：防止与同步/其他更新同时运行（函数返回时自动释放）
+    exec 9>/var/lock/xnode-update.lock 2>/dev/null || true
+    if ! flock -n 9 2>/dev/null; then
+        exec 9>&- 2>/dev/null || true
+        echo "${ICON_WARN} 已有更新任务在运行，本次跳过"
+        return 1
+    fi
+    release_update_lock() { flock -u 9 2>/dev/null; exec 9>&- 2>/dev/null || true; }
+    trap release_update_lock RETURN
+
+    # 备份配置（放到 /var/backups，避免 /tmp 下含凭据的备份暴露；mktemp 防路径猜测）
+    local backup_parent="/var/backups"
+    mkdir -p "$backup_parent" 2>/dev/null || backup_parent="/tmp"
+    BACKUP_DIR=$(mktemp -d "${backup_parent}/xnode-backup.XXXXXX") || { echo "[ERR] 创建备份目录失败"; return 1; }
 
     echo "[INFO] 备份配置文件..."
     for file in /etc/xboard-node/*.yml /etc/xboard-node/*.yaml; do
@@ -1098,7 +1134,7 @@ update_all() {
 
     # 停止服务
     echo "[INFO] 停止服务..."
-    RUNNING_NODES=$(systemctl list-units --type=service --state=running | grep "xboard-node@" | awk '{print $1}' | cut -d'@' -f2 | cut -d'.' -f1)
+    local RUNNING_NODES=$(systemctl list-units --type=service --state=running | grep "xboard-node@" | awk '{print $1}' | cut -d'@' -f2 | cut -d'.' -f1)
     if [ -n "$RUNNING_NODES" ]; then
         for node in $RUNNING_NODES; do
             systemctl stop "xboard-node@$node" 2>/dev/null
@@ -1122,61 +1158,97 @@ update_all() {
         *)       echo "[ERR] 不支持的架构: $ARCH"; rm -rf "$BACKUP_DIR"; return 1 ;;
     esac
 
-    # 获取版本
-    SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    [ -z "$SYNC_VERSION" ] && SYNC_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/xnodeauto/releases" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    [ -z "$SYNC_VERSION" ] && SYNC_VERSION="v1.2.5"
+    # 获取版本（复用带重试的 helper；获取失败即中止，不再静默回退旧版）
+    SYNC_VERSION=$(get_latest_version_from_github "ipevel/xnodeauto")
+    XBOARD_NODE_VERSION=$(get_latest_version_from_github "ipevel/Xboard-Node")
+    if [[ -z "$SYNC_VERSION" || "$SYNC_VERSION" == "未知" || -z "$XBOARD_NODE_VERSION" || "$XBOARD_NODE_VERSION" == "未知" ]]; then
+        echo "[ERR] 无法获取最新版本信息，中止更新（请检查网络或 GitHub API 访问）"
+        return 1
+    fi
 
-    # 获取 xboard-node 版本
-    XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/Xboard-Node/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    [ -z "$XBOARD_NODE_VERSION" ] && XBOARD_NODE_VERSION=$(curl -sL "https://api.github.com/repos/ipevel/Xboard-Node/releases" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    [ -z "$XBOARD_NODE_VERSION" ] && XBOARD_NODE_VERSION="v1.0.2"
+    # 校验下载文件：非空 + ELF 魔数
+    is_valid_elf() {
+        [ -s "$1" ] && head -c 4 "$1" 2>/dev/null | grep -q $'\x7fELF'
+    }
 
-    # 下载 sync-nodes
+    # 下载 sync-nodes（临时文件 + 校验 + 备份 + 原子替换）
     echo "  [->] sync-nodes ($SYNC_VERSION)"
-    if wget -q --show-progress -O /usr/local/bin/sync-nodes "https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}" 2>&1; then
+    local sync_tmp; sync_tmp="$(mktemp /tmp/sync-nodes.XXXXXX)"
+    if wget --timeout=300 -q --show-progress -O "$sync_tmp" "https://github.com/ipevel/xnodeauto/releases/download/${SYNC_VERSION}/sync-nodes-linux-${ARCH_SUFFIX}" 2>&1 && is_valid_elf "$sync_tmp"; then
+        [ -f /usr/local/bin/sync-nodes ] && cp -f /usr/local/bin/sync-nodes /usr/local/bin/sync-nodes.bak
+        mv -f "$sync_tmp" /usr/local/bin/sync-nodes
         chmod +x /usr/local/bin/sync-nodes
         echo "  [OK] sync-nodes 更新完成"
     else
-        echo "  [ERR] sync-nodes 下载失败"
+        rm -f "$sync_tmp"
+        fail_count=$((fail_count+1))
+        echo "  [ERR] sync-nodes 下载失败或校验未通过"
     fi
 
-    # 下载 xboard-node
+    # 下载 xboard-node（先比对版本，无新版则跳过下载与重启）
     echo "  [->] xboard-node ($XBOARD_NODE_VERSION)"
-    if wget -q --show-progress -O /usr/local/bin/xboard-node "https://github.com/ipevel/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}" 2>&1; then
-        chmod +x /usr/local/bin/xboard-node
-        echo "  [OK] xboard-node 更新完成"
+    local xb_current=""
+    if [ -x /usr/local/bin/xboard-node ]; then
+        xb_current=$(extract_version "$(/usr/local/bin/xboard-node -v 2>&1 | head -1)")
+    fi
+    if [ -n "$xb_current" ] && version_ge "$xb_current" "$XBOARD_NODE_VERSION"; then
+        echo "  [OK] xboard-node 已是最新 ($xb_current)，跳过下载"
     else
-        echo "  [ERR] xboard-node 下载失败"
+        local xb_tmp; xb_tmp="$(mktemp /tmp/xboard-node.XXXXXX)"
+        if wget --timeout=300 -q --show-progress -O "$xb_tmp" "https://github.com/ipevel/Xboard-Node/releases/download/${XBOARD_NODE_VERSION}/xboard-node-linux-${ARCH_SUFFIX}" 2>&1 && is_valid_elf "$xb_tmp"; then
+            [ -f /usr/local/bin/xboard-node ] && cp -f /usr/local/bin/xboard-node /usr/local/bin/xboard-node.bak
+            mv -f "$xb_tmp" /usr/local/bin/xboard-node
+            chmod +x /usr/local/bin/xboard-node
+            echo "  [OK] xboard-node 更新完成 ($XBOARD_NODE_VERSION)"
+        else
+            rm -f "$xb_tmp"
+            fail_count=$((fail_count+1))
+            echo "  [ERR] xboard-node 下载失败或校验未通过"
+        fi
     fi
 
     # 下载管理脚本(先下载到临时文件,避免正在运行时覆盖出错)
     echo "  [->] xnode"
-    if wget -q -O /tmp/xnode.tmp "https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh?t=$(date +%s)"; then
-        chmod +x /tmp/xnode.tmp
-        mv -f /tmp/xnode.tmp /usr/local/bin/xnode
+    local xnode_tmp; xnode_tmp="$(mktemp /tmp/xnode.XXXXXX)"
+    if wget --timeout=60 -q -O "$xnode_tmp" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/xnode.sh?t=$(date +%s)"; then
+        chmod +x "$xnode_tmp"
+        mv -f "$xnode_tmp" /usr/local/bin/xnode
         echo "  [OK] xnode 更新完成"
     else
-        rm -f /tmp/xnode.tmp
+        rm -f "$xnode_tmp"
+        fail_count=$((fail_count+1))
         echo "  [ERR] xnode 下载失败"
     fi
 
-    # 下载 systemd 文件
+    # 下载 systemd 文件（逐文件校验，失败计入 fail_count）
     echo "  [->] systemd 服务文件"
+    local sysd_fail=0
     for file in xboard-node@.service sync-nodes.service sync-nodes.timer update-xboard-node.service update-xboard-node.timer; do
-        wget -q -O "/etc/systemd/system/$file" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/systemd/$file" 2>/dev/null
+        if wget --timeout=30 -q -O "/etc/systemd/system/$file" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/systemd/$file" 2>/dev/null && [ -s "/etc/systemd/system/$file" ]; then
+            echo "  [OK] $file"
+        else
+            echo "  [ERR] $file 下载失败"
+            sysd_fail=$((sysd_fail+1))
+        fi
     done
-    systemctl daemon-reload
-    echo "  [OK] systemd 服务文件更新完成"
+    systemctl daemon-reload 2>/dev/null
+    if [ "$sysd_fail" -eq 0 ]; then
+        echo "  [OK] systemd 服务文件更新完成"
+    else
+        fail_count=$((fail_count+sysd_fail))
+        echo "  [WARN] systemd 服务文件有 $sysd_fail 个下载失败"
+    fi
 
     # 下载 update-xboard-node.sh(先下载到临时文件,避免正在运行时覆盖出错)
     echo "  [->] update-xboard-node.sh"
-    if wget -q -O /tmp/update-xboard-node.tmp "https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-xboard-node.sh?t=$(date +%s)"; then
-        chmod +x /tmp/update-xboard-node.tmp
-        mv -f /tmp/update-xboard-node.tmp /usr/local/bin/update-xboard-node.sh
+    local upd_tmp; upd_tmp="$(mktemp /tmp/update-xboard-node.XXXXXX)"
+    if wget --timeout=60 -q -O "$upd_tmp" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/update-xboard-node.sh?t=$(date +%s)"; then
+        chmod +x "$upd_tmp"
+        mv -f "$upd_tmp" /usr/local/bin/update-xboard-node.sh
         echo "  [OK] update-xboard-node.sh 更新完成"
     else
-        rm -f /tmp/update-xboard-node.tmp
+        rm -f "$upd_tmp"
+        fail_count=$((fail_count+1))
         echo "  [ERR] update-xboard-node.sh 下载失败"
     fi
     echo ""
@@ -1205,9 +1277,13 @@ update_all() {
     systemctl start update-xboard-node.timer 2>/dev/null
 
     echo "============================================"
-    echo "============================================"
-    echo "============================================"
-    echo "更新完成!配置已保留"
+    if [ "$fail_count" -gt 0 ]; then
+        echo "${ICON_ERR} 更新流程结束，但有 $fail_count 个组件失败！"
+        echo "[INFO] 请检查网络后重试: xnode update"
+        echo "[INFO] 二进制更新已改为备份 + 校验 + 原子替换，旧版本保留在 *.bak"
+    else
+        echo "更新完成!配置已保留"
+    fi
     echo "============================================"
     echo ""
 
@@ -1220,15 +1296,16 @@ install_all() {
     echo "${ICON_WARN} 安装"
     echo "============================================"
     echo ""
-    echo "  这将清除所有现有配置并重新安装"
+    echo "  将重新安装 xnodeauto 并覆盖 sync.yml"
+    echo "  (已有的节点配置文件 <节点ID>.yml 与别名将保留)"
     echo ""
     confirm "确定要继续吗?" "n"
     if [[ $? != 0 ]]; then
         return 0
     fi
 
-    # 调用官方安装脚本
-    bash <(curl -Ls https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)
+    # 调用官方安装脚本（透传命令行参数，如 --url/--admin-path/...）
+    bash <(curl -Ls https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh) "$@"
 }
 
 
@@ -1247,7 +1324,7 @@ show_log_menu() {
         echo "------------------------"
         echo "0.  返回主菜单"
         echo "------------------------"
-        read -rp "请输入你的选择: " choice
+        read -rp "请输入你的选择: " choice || return
 
         case "$choice" in
             1) show_sync_log ;;
@@ -1258,7 +1335,7 @@ show_log_menu() {
 
         echo ""
         echo -n "按 Enter 继续..."
-        read temp
+        read temp || break
     done
 }
 
@@ -1284,7 +1361,7 @@ show_menu() {
         echo "  0. 退出脚本"
         echo ""
         echo "============================================"
-        read -rp "请输入你的选择: " choice
+        read -rp "请输入你的选择: " choice || { echo ""; echo "再见!"; exit 0; }
 
         case "$choice" in
             1) show_version ;;
@@ -1304,8 +1381,33 @@ show_menu() {
 # ========== 命令行参数 ==========
 
 case "$1" in
+    help|-h|--help)
+        cat <<'EOF'
+用法: xnode <命令> [参数]
+
+命令列表:
+  status               查看节点状态
+  start                启动所有节点
+  stop                 停止所有节点
+  restart              重启所有节点
+  sync                 手动同步节点
+  list-nodes           查看节点列表
+  add-node <ID> [别名]   添加节点
+  remove-node <ID>     删除节点
+  set-alias <ID> <别名>  设置别名
+  log                  查看同步日志
+  update               更新所有组件
+  version              查看版本
+  install [参数]        重新安装
+  uninstall            卸载
+  config               修改配置
+
+（无参数运行 xnode 打开交互菜单；status/version/log 无需 root）
+EOF
+        ;;
     status)
         status 1
+        exit $?
         ;;
     start)
         start_all 1
@@ -1318,38 +1420,49 @@ case "$1" in
         ;;
     sync)
         sync 1
+        exit $?
         ;;
     list-nodes)
         list_nodes 1
         ;;
     add-node)
-        add_node "$2" "$3"
+        add_node "$2" "$3" cli
         ;;
     remove-node)
         remove_node "$2"
+        exit $?
         ;;
     set-alias)
         set_node_alias "$2" "$3"
+        exit $?
         ;;
     log)
         show_sync_log 1
         ;;
     update)
         update_all 1
+        exit $?
         ;;
     version)
         show_version 1
         ;;
     install)
-        install_all 1
+        shift
+        install_all "$@"
         ;;
     uninstall)
         uninstall 1
         ;;
     config)
         config 1
+        exit $?
+        ;;
+    "")
+        show_menu
         ;;
     *)
-        show_menu
+        echo "${ICON_ERR} 未知命令: $1"
+        echo "运行 xnode help 查看用法"
+        exit 1
         ;;
 esac

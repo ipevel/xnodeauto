@@ -8,11 +8,19 @@ Xboard 节点自动同步管理工具
 bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.sh)
 ```
 
+## 系统要求
+
+- 操作系统：Debian/Ubuntu 等 **systemd 发行版**（脚本依赖 `apt` 与 `systemctl`）
+- 需要 **root** 权限运行安装与管理脚本
+- 依赖工具：`wget`、`curl`（可选 `yq`，安装脚本会自动获取）
+- 面板地址必须使用 HTTPS
+
 ## 功能特性
 
-- 自动同步 - 自动同步面板节点操作
+- 自动同步 - 自动同步面板节点操作（默认每小时）
 - 多节点支持 - 支持多节点和中转机
-- 手动更新 - 手动更新 xboard-node 到最新版本
+- 手动更新 - 手动更新所有组件（xboard-node / sync-nodes / 脚本 / systemd 单元）
+- 每日自动更新 - 默认启用 `update-xboard-node.timer` 每日自动更新 xboard-node（可用菜单 5 关闭）
 - 别名管理 - 节点别名便于识别
 - 开机自启 - 节点同步可设置开机自启
 
@@ -42,7 +50,7 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 | `xnode stop` | 停止所有节点 |
 | `xnode restart` | 重启所有节点 |
 | `xnode sync` | 手动同步节点 |
-| `xnode update` | 手动更新 xboard-node |
+| `xnode update` | 更新所有组件（xboard-node/sync-nodes/脚本/systemd 单元，自动备份回滚） |
 | `xnode list-nodes` | 查看节点列表 |
 | `xnode add-node <ID> [别名]` | 添加节点 |
 | `xnode remove-node <ID>` | 删除节点 |
@@ -52,6 +60,7 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 | `xnode install` | 重新安装 |
 | `xnode uninstall` | 卸载 |
 | `xnode config` | 修改配置 |
+| `xnode help` | 查看命令用法 |
 
 ## 配置文件
 
@@ -65,18 +74,30 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 /usr/local/bin/
 ├── xboard-node              # 节点程序
 ├── sync-nodes               # 同步程序
-├── update-xboard-node.sh     # 手动更新脚本
+├── update-xboard-node.sh     # 更新脚本
 └── xnode                    # 管理脚本
 
 /etc/xboard-node/
 ├── sync.yml                 # 主配置
 ├── node_alias.yml           # 别名配置
 └── <节点ID>.yml             # 节点配置
+
+/etc/systemd/system/
+├── xboard-node@.service     # 节点模板服务（%i = 节点ID）
+├── sync-nodes.service       # 定时同步服务
+├── sync-nodes.timer         # 同步定时器（默认每小时）
+├── update-xboard-node.service  # 自动更新服务
+└── update-xboard-node.timer    # 更新定时器（默认每日）
+
+/var/lock/
+├── xnode-sync.lock          # 同步并发锁
+└── xnode-update.lock        # 更新并发锁
 ```
 
 ## 定时任务
 
-- `sync-nodes.timer` - 节点自动同步（默认每小时）
+- `sync-nodes.timer` - 节点自动同步（默认**每小时**）
+- `update-xboard-node.timer` - 每日自动更新 xboard-node（默认启用；`xnode` 菜单 5「开机自启」可关闭）
 
 ## 维护
 
