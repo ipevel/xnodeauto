@@ -21,6 +21,22 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 > ```
 > 推荐方式：始终从 git 检出/`git archive`/`raw.githubusercontent.com` 获取文件（已为 LF）。
 
+## 从旧版本升级
+
+老版本（v1.2.x 及更早）可**平滑升级**，推荐路径（自动备份配置、失败可回滚）：
+
+```bash
+xnode update        # 或进入菜单选「6. 更新脚本」
+```
+
+升级内容：xboard-node / sync-nodes / 管理脚本 / 更新脚本 / systemd 单元全部更新到最新版本；配置（sync.yml / node_alias.yml / 节点配置文件）自动备份并恢复，无需重填。
+
+注意事项：
+1. **不要用 `bash install.sh` 重跑来升级**——那是全新安装语义，会覆盖 sync.yml 并要求重新填写；升级请走 `xnode update`。
+2. 升级后 `sync-nodes.timer` 同步频率为**每小时**（旧版本为每分钟，与本文档一致），如需更高频请自行调整 `/etc/systemd/system/sync-nodes.timer`。
+3. `xboard-node` 会更新到 Xboard-Node 仓库最新版（可能跨大版本），且默认每日自动更新（可用 `xnode` 菜单 5 关闭）。
+4. 极老版本（v1.0.x）升级前建议先手动备份 `/etc/xboard-node/` 目录。
+
 ## 功能特性
 
 - 自动同步 - 自动同步面板节点操作（默认每小时）
