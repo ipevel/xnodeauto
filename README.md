@@ -15,6 +15,12 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 - 依赖工具：`wget`、`curl`（可选 `yq`，安装脚本会自动获取）
 - 面板地址必须使用 HTTPS
 
+> **Windows 用户部署须知**：仓库内文件以 LF 存储（见 `.gitattributes`）。若直接从 Windows 工作目录拷贝脚本到 Linux，请先转换行尾，否则 `bash` 会报 `$'\r'` 语法错误：
+> ```bash
+> sed -i 's/\r$//' xnode.sh install.sh update-xboard-node.sh upgrade.sh
+> ```
+> 推荐方式：始终从 git 检出/`git archive`/`raw.githubusercontent.com` 获取文件（已为 LF）。
+
 ## 功能特性
 
 - 自动同步 - 自动同步面板节点操作（默认每小时）
