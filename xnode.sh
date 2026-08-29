@@ -951,11 +951,10 @@ get_latest_version_from_github() {
     echo "${latest_version:-未知}"
 }
 
-# 提取版本号
+# 提取版本号（兼容 v1.13 两段式与 v1.2.8 三段式）
 extract_version() {
     local text="$1"
-    # 提取 v1.0.3 或 1.0.3 格式
-    echo "$text" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+[^[:space:]]*' | head -1
+    echo "$text" | grep -oE '[vV]?[0-9]+(\.[0-9]+)+[^[:space:]]*' | head -1
 }
 
 show_version() {
@@ -1274,7 +1273,7 @@ update_all() {
     fi
 
     systemctl start sync-nodes.timer 2>/dev/null
-    systemctl start update-xboard-node.timer 2>/dev/null
+    # 自动更新定时器不在此重启（默认手动更新；如需恢复自动更新，用菜单 5 → 4 启用）
 
     echo "============================================"
     if [ "$fail_count" -gt 0 ]; then

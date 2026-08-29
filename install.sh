@@ -468,12 +468,12 @@ else
     echo ""
 fi
 
-# 启动定时服务
+# 启动定时服务（仅同步定时器；自动更新默认关闭，需要时用 xnode 菜单 5 开启）
 echo ""
 echo "启动定时服务..."
 systemctl enable --now sync-nodes.timer > /dev/null 2>&1
-systemctl enable --now update-xboard-node.timer > /dev/null 2>&1
-show_success "定时服务已启动"
+show_success "同步定时服务已启动"
+echo "[INFO] 自动更新未启用（手动更新: xnode update；如需自动: xnode 菜单 5 → 4）"
 
 # 最终提示
 echo ""

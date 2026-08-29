@@ -34,7 +34,7 @@ xnode update        # 或进入菜单选「6. 更新脚本」
 注意事项：
 1. **不要用 `bash install.sh` 重跑来升级**——那是全新安装语义，会覆盖 sync.yml 并要求重新填写；升级请走 `xnode update`。
 2. 升级后 `sync-nodes.timer` 同步频率为**每小时**（旧版本为每分钟，与本文档一致），如需更高频请自行调整 `/etc/systemd/system/sync-nodes.timer`。
-3. `xboard-node` 会更新到 Xboard-Node 仓库最新版（可能跨大版本），且默认每日自动更新（可用 `xnode` 菜单 5 关闭）。
+3. `xboard-node` 由你**手动更新**（`xnode update`）到 Xboard-Node 仓库最新版；自动更新默认关闭，若需开启：`xnode` 菜单 5 →「4. 仅启用自动更新」。
 4. 极老版本（v1.0.x）升级前建议先手动备份 `/etc/xboard-node/` 目录。
 
 ## 功能特性
@@ -42,7 +42,7 @@ xnode update        # 或进入菜单选「6. 更新脚本」
 - 自动同步 - 自动同步面板节点操作（默认每小时）
 - 多节点支持 - 支持多节点和中转机
 - 手动更新 - 手动更新所有组件（xboard-node / sync-nodes / 脚本 / systemd 单元）
-- 每日自动更新 - 默认启用 `update-xboard-node.timer` 每日自动更新 xboard-node（可用菜单 5 关闭）
+- 自动更新（可选） - 默认**关闭**；需要时用 `xnode` 菜单 5 开启每日自动更新
 - 别名管理 - 节点别名便于识别
 - 开机自启 - 节点同步可设置开机自启
 
@@ -109,7 +109,7 @@ xnode update        # 或进入菜单选「6. 更新脚本」
 ├── sync-nodes.service       # 定时同步服务
 ├── sync-nodes.timer         # 同步定时器（默认每小时）
 ├── update-xboard-node.service  # 自动更新服务
-└── update-xboard-node.timer    # 更新定时器（默认每日）
+└── update-xboard-node.timer    # 自动更新定时器（默认不启用）
 
 /var/lock/
 ├── xnode-sync.lock          # 同步并发锁
@@ -119,7 +119,7 @@ xnode update        # 或进入菜单选「6. 更新脚本」
 ## 定时任务
 
 - `sync-nodes.timer` - 节点自动同步（默认**每小时**）
-- `update-xboard-node.timer` - 每日自动更新 xboard-node（默认启用；`xnode` 菜单 5「开机自启」可关闭）
+- `update-xboard-node.timer` - 自动更新 xboard-node（**默认不启用**，更新请手动运行 `xnode update`；如需恢复自动更新：`xnode` 菜单 5 →「4. 仅启用自动更新」）
 
 ## 维护
 
