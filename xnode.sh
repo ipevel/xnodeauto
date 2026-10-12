@@ -12,7 +12,7 @@ ICON_INFO="[INFO]"
 ICON_ARROW="[->]"
 
 # 脚本版本（发布时与 install.sh 横幅、git tag 同步更新）
-XNODE_VERSION="v1.2.8"
+XNODE_VERSION="v1.2.9"
 
 alias_file="/etc/xboard-node/node_alias.yml"
 
@@ -423,12 +423,13 @@ start_all() {
 
     # 读取 sync.yml 获取节点列表
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        # 从配置文件读取 manual_node_ids
-        local node_ids=$(grep -A 100 "^manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
+        # 从配置文件读取 manual_node_ids（支持块列表与行内列表）
+        local node_ids=$(get_manual_node_ids /etc/xboard-node/sync.yml)
+        node_ids="${node_ids//$'\n'/ }"
 
-        if [[ -z "$node_ids" ]]; then
+        if [[ -z "${node_ids// /}" ]]; then
             # 如果没有 manual_node_ids,尝试从配置文件中查找（排除 sync.yml 与 node_alias.yml）
-            node_ids=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v -e sync.yml -e node_alias.yml | xargs -I {} basename {} .yml)
+            node_ids=$(ls /etc/xboard-node/*.yml 2>/dev/null | grep -v -e sync.yml -e node_alias.yml | xargs -r -n1 basename 2>/dev/null | sed 's/\.yml$//' | tr '\n' ' ')
         fi
 
         if [[ -z "$node_ids" ]]; then
@@ -514,6 +515,27 @@ restart_all() {
 
 # ========== 同步节点 ==========
 
+# 执行一次同步（持有 xnode-sync 锁，避免与每小时定时任务/其他调用并发修改配置）
+run_sync_locked() {
+    if [[ ! -f /usr/local/bin/sync-nodes ]]; then
+        echo "${ICON_ERR} sync-nodes 未安装"
+        return 1
+    fi
+
+    exec 9>/var/lock/xnode-sync.lock 2>/dev/null || true
+    if ! flock -n 9 2>/dev/null; then
+        exec 9>&- 2>/dev/null || true
+        echo "${ICON_WARN} 已有同步任务在运行，本次跳过"
+        return 1
+    fi
+
+    /usr/local/bin/sync-nodes
+    local rc=$?
+    flock -u 9 2>/dev/null
+    exec 9>&- 2>/dev/null || true
+    return $rc
+}
+
 sync() {
     echo "============================================"
     echo "[GEAR] 同步节点"
@@ -528,18 +550,8 @@ sync() {
         return 1
     fi
 
-    # 并发锁：防止与定时同步/更新任务同时运行
-    exec 9>/var/lock/xnode-sync.lock 2>/dev/null || true
-    if ! flock -n 9 2>/dev/null; then
-        exec 9>&- 2>/dev/null || true
-        echo "${ICON_WARN} 已有同步任务在运行，本次跳过"
-        return 1
-    fi
-
-    /usr/local/bin/sync-nodes
+    run_sync_locked
     local rc=$?
-    flock -u 9 2>/dev/null
-    exec 9>&- 2>/dev/null || true
     if [[ $rc -ne 0 ]]; then
         echo "${ICON_ERR} 同步失败 (退出码 $rc)，请检查面板配置与网络"
     else
@@ -563,7 +575,7 @@ list_nodes() {
 
     # 读取配置的节点
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        local node_ids=$(grep -A 100 "^manual_node_ids:" /etc/xboard-node/sync.yml 2>/dev/null | grep -E "^  - [0-9]+" | awk '{print $2}')
+        local node_ids=$(get_manual_node_ids /etc/xboard-node/sync.yml)
 
         if [[ -z "$node_ids" ]]; then
             echo "[INFO] 使用自动同步模式(未配置手动节点)"
@@ -593,7 +605,7 @@ list_nodes() {
             echo "  节点ID  别名              状态      "
             echo "------  ----------------  ------"
 
-            for id in $node_ids; do
+            for id in ${node_ids//$'\n'/ }; do
                 local alias="${node_aliases[$id]:-节点$id}"
                 local status=$(systemctl is-active "xboard-node@${id}.service" 2>/dev/null || echo "inactive")
 
@@ -616,25 +628,323 @@ list_nodes() {
 
 }
 
-# 向 sync.yml 的 manual_node_ids 列表末尾追加节点（yq 优先，fallback awk；node_id 须已通过数字校验）
+# 输出 manual_node_ids 列表（每行一个 ID）；块列表与行内列表 [1,2] 均支持
+get_manual_node_ids() {
+    local cfg="${1:-/etc/xboard-node/sync.yml}"
+    [[ -f "$cfg" ]] || return 0
+
+    local line seen=0 in_list=0 inline v
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ $seen -eq 0 ]]; then
+            if [[ "$line" =~ ^manual_node_ids:[[:space:]]*(.*)$ ]]; then
+                seen=1
+                inline="${BASH_REMATCH[1]}"
+                inline="${inline%%#*}"          # 去掉行尾注释
+                inline="${inline// /}"           # 去掉空格
+                if [[ -z "$inline" || "$inline" == "[]" ]]; then
+                    in_list=1                   # 空列表：下一行开始是块列表
+                    continue
+                fi
+                if [[ "$inline" == \[* ]]; then
+                    # 行内列表 [1,2] 展开输出
+                    inline="${inline#[}"
+                    inline="${inline%]}"
+                    for v in ${inline//,/ }; do
+                        [[ "$v" =~ ^[0-9]+$ ]] && echo "$v"
+                    done
+                fi
+            fi
+            continue
+        fi
+        if [[ $in_list -eq 1 ]]; then
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*([0-9]+) ]]; then
+                echo "${BASH_REMATCH[1]}"
+                continue
+            fi
+            [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+            in_list=0
+        fi
+    done < "$cfg"
+}
+
+# 判断 manual_node_ids 中是否已包含指定 ID（用于 add-node 幂等判断）
+manual_node_id_exists() {
+    local node_id="$1"
+    local cfg="${2:-/etc/xboard-node/sync.yml}"
+    local id
+    [[ -f "$cfg" ]] || return 1
+    while IFS= read -r id; do
+        [[ "$id" == "$node_id" ]] && return 0
+    done < <(get_manual_node_ids "$cfg")
+    return 1
+}
+
+# 向 sync.yml 的 manual_node_ids 列表追加节点
+# 纯 bash 实现（不依赖 yq/awk）：任何情况下都保留已有的全部 ID。
+# 背景：v1.2.8 用 awk 做 fallback，在 yq 缺失时会丢弃列表里已有的条目，
+# 导致「一台服务器上只剩一个节点」（其余节点被同步任务停掉并删除配置）。
+# 用法: append_manual_node_id <node_id> [config_path]
 append_manual_node_id() {
     local node_id="$1"
+    local cfg="${2:-/etc/xboard-node/sync.yml}"
     local tmp_file
-    if command -v yq &>/dev/null; then
-        if yq -i ".manual_node_ids = ((.manual_node_ids // []) + [${node_id}])" /etc/xboard-node/sync.yml 2>/dev/null; then
-            return 0
-        fi
+
+    if [[ -z "$node_id" ]]; then
+        echo "${ICON_ERR} 节点ID不能为空"
+        return 1
     fi
-    # fallback: 在 manual_node_ids 段最后一条 "- id" 后追加
-    tmp_file="$(mktemp /etc/xboard-node/sync.yml.XXXXXX)"
-    awk -v id="$node_id" '
-        /^manual_node_ids:/ { inlist=1; print; next }
-        inlist && /^  - / { last_line=$0; next }
-        inlist && !/^  - / { if (last_line != "") print "  - " id; print; if (!/^[[:space:]]*$/) inlist=0 }
-        !inlist { print }
-        END { if (inlist) print "  - " id }
-    ' /etc/xboard-node/sync.yml > "$tmp_file" && mv -f "$tmp_file" /etc/xboard-node/sync.yml
-    rm -f "$tmp_file"
+    if [[ ! "$node_id" =~ ^[0-9]+$ ]]; then
+        echo "${ICON_ERR} 无效的节点ID: $node_id（必须为纯数字）"
+        return 1
+    fi
+    if [[ ! -f "$cfg" ]]; then
+        echo "${ICON_ERR} 配置文件不存在: $cfg"
+        return 1
+    fi
+
+    # 已存在则不做任何修改（幂等，重复添加不会破坏顺序）
+    if manual_node_id_exists "$node_id" "$cfg"; then
+        return 0
+    fi
+
+    tmp_file="$(mktemp "${cfg}.XXXXXX")" || {
+        echo "${ICON_ERR} 无法创建临时文件: ${cfg}.XXXXXX"
+        return 1
+    }
+
+    # ---- 第一遍：定位键行、判断值的写法、找到块列表的最后一个条目 ----
+    local line inline="" key_kind="none" key_line=0 lineno=0
+    local last_entry_line=0 entry_indent="  " entry_indent_seen=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lineno=$((lineno + 1))
+        if [[ $key_line -eq 0 ]]; then
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            if [[ "$line" =~ ^manual_node_ids:[[:space:]]*(.*)$ ]]; then
+                key_line=$lineno
+                inline="${BASH_REMATCH[1]}"
+                inline="${inline%%#*}"          # 去掉行尾注释
+                inline="${inline// /}"           # 去掉空格
+                if [[ -z "$inline" || "$inline" == "[]" ]]; then
+                    key_kind="empty"              # 块列表在后续行（可能还没有条目）
+                elif [[ "$inline" == \[* ]]; then
+                    key_kind="inline"             # 行内列表 [1,2]
+                else
+                    key_kind="scalar"             # 标量（非法配置）：按空列表处理
+                fi
+            fi
+            continue
+        fi
+        # 只有空列表写法才需要向下找块列表条目；行内列表/标量到这就结束
+        [[ $key_kind != "empty" ]] && break
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        if [[ "$line" =~ ^([[:space:]]*)-[[:space:]]*([0-9]+) ]]; then
+            entry_indent="${BASH_REMATCH[1]}"   # 沿用原列表缩进
+            entry_indent_seen=1
+            last_entry_line=$lineno
+            continue
+        fi
+        break                                    # 顶层键/其它内容：列表结束
+    done < "$cfg"
+
+    # ---- 第二遍：重写文件，把新 ID 追加到列表末尾（顺序不变，不丢任何条目）----
+    local inserted=0 insert_after=0 v x
+    case "$key_kind" in
+        none)  : ;;
+        empty) if [[ $entry_indent_seen -eq 1 ]]; then insert_after=$last_entry_line; else insert_after=$key_line; fi ;;
+        *)     insert_after=$key_line ;;
+    esac
+
+    lineno=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lineno=$((lineno + 1))
+        if [[ $key_line -gt 0 && $lineno -eq $key_line ]]; then
+            case "$key_kind" in
+                inline)
+                    # 行内列表展开为块列表，并追加新 ID
+                    echo "manual_node_ids:"
+                    v="${inline#\[}"
+                    v="${v%\]}"
+                    for x in ${v//,/ }; do
+                        [[ "$x" =~ ^[0-9]+$ ]] && echo "  - $x"
+                    done
+                    echo "  - $node_id"
+                    inserted=1
+                    ;;
+                scalar)
+                    echo "manual_node_ids:"
+                    echo "  - $node_id"
+                    inserted=1
+                    ;;
+                *)
+                    # 空列表：保留原行（可能带注释），无条目时紧跟键写入
+                    if [[ -z "$inline" ]]; then
+                        echo "$line"
+                    else
+                        echo "manual_node_ids:"
+                    fi
+                    if [[ $entry_indent_seen -eq 0 ]]; then
+                        echo "  - $node_id"
+                        inserted=1
+                    fi
+                    ;;
+            esac
+            continue
+        fi
+        echo "$line"
+        if [[ $insert_after -gt 0 && $lineno -eq $insert_after && $inserted -eq 0 ]]; then
+            echo "${entry_indent}- $node_id"
+            inserted=1
+        fi
+    done < "$cfg" > "$tmp_file"
+
+    if [[ $inserted -eq 0 ]]; then
+        # 整个文件没有 manual_node_ids 键：追加到末尾
+        printf '\n# 手动指定的节点ID\nmanual_node_ids:\n  - %s\n' "$node_id" >> "$tmp_file"
+    fi
+
+    # 保持原文件权限（install.sh 写入的 sync.yml 是 600）
+    local orig_mode=""
+    if command -v stat >/dev/null 2>&1; then
+        orig_mode="$(stat -c '%a' "$cfg" 2>/dev/null)" || orig_mode=""
+    fi
+    if [[ -n "$orig_mode" ]]; then
+        chmod "$orig_mode" "$tmp_file" 2>/dev/null || true
+    else
+        chmod 600 "$tmp_file" 2>/dev/null || true
+    fi
+    if ! mv -f "$tmp_file" "$cfg"; then
+        rm -f "$tmp_file"
+        echo "${ICON_ERR} 写入配置文件失败: $cfg"
+        return 1
+    fi
+}
+
+# 从 sync.yml 的 manual_node_ids 列表中移除指定节点
+# 只改动 manual_node_ids 列表本身：块列表按行删除，行内列表重写为块列表。
+# 背景：v1.2.8 用 `sed -i "/^  - ${id}$/d"` 删除，会误删文件其它位置的同形行。
+# 用法: remove_manual_node_id <node_id> [config_path]
+remove_manual_node_id() {
+    local node_id="$1"
+    local cfg="${2:-/etc/xboard-node/sync.yml}"
+
+    if [[ ! "$node_id" =~ ^[0-9]+$ ]]; then
+        echo "${ICON_ERR} 无效的节点ID: $node_id（必须为纯数字）"
+        return 1
+    fi
+    if [[ ! -f "$cfg" ]]; then
+        return 1
+    fi
+    # 本来就不在列表里：不做任何修改（幂等）
+    if ! manual_node_id_exists "$node_id" "$cfg"; then
+        return 0
+    fi
+
+    local line inline="" key_kind="none" key_line=0 lineno=0 first_entry=0 v x
+    local -a keep=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lineno=$((lineno + 1))
+        if [[ $key_line -eq 0 ]]; then
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            if [[ "$line" =~ ^manual_node_ids:[[:space:]]*(.*)$ ]]; then
+                key_line=$lineno
+                inline="${BASH_REMATCH[1]}"
+                inline="${inline%%#*}"
+                inline="${inline// /}"
+                if [[ "$inline" == \[* ]]; then
+                    key_kind="inline"
+                elif [[ -z "$inline" || "$inline" == "[]" ]]; then
+                    key_kind="empty"
+                else
+                    key_kind="scalar"
+                fi
+            fi
+            continue
+        fi
+        [[ $key_kind == "empty" ]] || break
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        if [[ "$line" =~ ^([[:space:]]*)-[[:space:]]*([0-9]+) ]]; then
+            # 记录第一条目的行号：第二遍据此判断「列表区域」
+            [[ $first_entry -eq 0 ]] && first_entry=$lineno
+            continue
+        fi
+        break
+    done < "$cfg"
+
+    if [[ $key_line -eq 0 ]]; then
+        return 0
+    fi
+
+    local tmp_file
+    tmp_file="$(mktemp "${cfg}.XXXXXX")" || {
+        echo "${ICON_ERR} 无法创建临时文件: ${cfg}.XXXXXX"
+        return 1
+    }
+
+    lineno=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lineno=$((lineno + 1))
+        if [[ $lineno -eq $key_line ]]; then
+            case "$key_kind" in
+                inline)
+                    v="${inline#\[}"
+                    v="${v%\]}"
+                    keep=()
+                    for x in ${v//,/ }; do
+                        [[ "$x" =~ ^[0-9]+$ ]] || continue
+                        [[ "$x" == "$node_id" ]] && continue
+                        keep+=("$x")
+                    done
+                    if [[ ${#keep[@]} -eq 0 ]]; then
+                        echo "manual_node_ids: []"
+                    else
+                        echo "manual_node_ids:"
+                        for x in "${keep[@]}"; do
+                            echo "  - $x"
+                        done
+                    fi
+                    ;;
+                scalar) echo "manual_node_ids: []" ;;
+                *)
+                    if [[ -n "$inline" ]]; then
+                        echo "manual_node_ids:"
+                    else
+                        echo "$line"
+                    fi
+                    ;;
+            esac
+            continue
+        fi
+        if [[ $first_entry -gt 0 && $lineno -ge $first_entry ]]; then
+            # 列表区域内：只删目标 ID，其余条目/注释/空行原样保留
+            [[ "$line" =~ ^[[:space:]]*# ]] && { echo "$line"; continue; }
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*([0-9]+) ]]; then
+                [[ "${BASH_REMATCH[1]}" == "$node_id" ]] && continue
+                echo "$line"
+                continue
+            fi
+            [[ "$line" =~ ^[[:space:]]*$ ]] && { echo "$line"; continue; }
+            # 遇到其它顶层内容：列表已结束
+            first_entry=0
+        fi
+        echo "$line"
+    done < "$cfg" > "$tmp_file"
+
+    local orig_mode=""
+    if command -v stat >/dev/null 2>&1; then
+        orig_mode="$(stat -c '%a' "$cfg" 2>/dev/null)" || orig_mode=""
+    fi
+    if [[ -n "$orig_mode" ]]; then
+        chmod "$orig_mode" "$tmp_file" 2>/dev/null || true
+    else
+        chmod 600 "$tmp_file" 2>/dev/null || true
+    fi
+    if ! mv -f "$tmp_file" "$cfg"; then
+        rm -f "$tmp_file"
+        echo "${ICON_ERR} 写入配置文件失败: $cfg"
+        return 1
+    fi
 }
 
 add_node() {
@@ -660,7 +970,7 @@ add_node() {
     # 检查是否已在配置中
     if [[ -f /etc/xboard-node/sync.yml ]]; then
         if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
-            if grep -E "^  - $node_id$" /etc/xboard-node/sync.yml > /dev/null; then
+            if manual_node_id_exists "$node_id" /etc/xboard-node/sync.yml; then
                 echo "${ICON_WARN} 节点 $node_id 已在配置中"
 
                 # 检查节点是否在运行
@@ -700,13 +1010,10 @@ add_node() {
     fi
     if [[ -f /etc/xboard-node/sync.yml ]]; then
         if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
-            # 已有 manual_node_ids,检查是否为空数组
-            if grep -qE "^manual_node_ids: \[\]" /etc/xboard-node/sync.yml; then
-                # 替换空数组
-                sed -i "s/^manual_node_ids: \[\]$/manual_node_ids:\n  - $node_id/" /etc/xboard-node/sync.yml
-            else
-                # 追加到列表末尾（顺序与添加顺序一致）
-                append_manual_node_id "$node_id"
+            # 已有 manual_node_ids（含空数组 [] 与行内列表）：安全追加，不覆盖已有条目
+            if ! append_manual_node_id "$node_id" /etc/xboard-node/sync.yml; then
+                echo "${ICON_ERR} 写入 /etc/xboard-node/sync.yml 失败，节点列表未变更"
+                return 1
             fi
         else
             # 没有 manual_node_ids,添加到文件末尾
@@ -726,10 +1033,10 @@ add_node() {
         set_alias "$node_id" "$alias"
     fi
 
-    # 执行同步
+    # 执行同步（复用与 sync 子命令相同的并发锁，避免与每小时定时同步互相破坏配置）
     echo ""
     echo "${ICON_ARROW} 执行同步..."
-    if ! /usr/local/bin/sync-nodes; then
+    if ! run_sync_locked; then
         echo "${ICON_WARN} 同步返回失败，请检查面板配置与网络后重试: xnode sync"
     fi
 
@@ -779,10 +1086,13 @@ remove_node() {
         echo "[OK] 配置文件已删除"
     fi
 
-    # 从 sync.yml 移除（精确匹配）
+    # 从 sync.yml 移除（只改 manual_node_ids 列表，不误伤其它位置的同形行）
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        sed -i "/^  - ${node_id}$/d" /etc/xboard-node/sync.yml
-        echo "[OK] 已从配置中移除"
+        if remove_manual_node_id "$node_id" /etc/xboard-node/sync.yml; then
+            echo "[OK] 已从配置中移除"
+        else
+            echo "${ICON_WARN} 从配置中移除失败: /etc/xboard-node/sync.yml"
+        fi
     fi
 
     # 删除别名

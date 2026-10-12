@@ -12,7 +12,7 @@ bash <(curl -sL https://raw.githubusercontent.com/ipevel/xnodeauto/main/install.
 
 - 操作系统：Debian/Ubuntu 等 **systemd 发行版**（脚本依赖 `apt` 与 `systemctl`）
 - 需要 **root** 权限运行安装与管理脚本
-- 依赖工具：`wget`、`curl`（可选 `yq`，安装脚本会自动获取）
+- 依赖工具：`wget`、`curl`（`yq` 由安装脚本自动获取；即使安装失败，节点列表也能用纯 bash 解析，功能不受影响）
 - 面板地址必须使用 HTTPS
 
 > **Windows 用户部署须知**：仓库内文件以 LF 存储（见 `.gitattributes`）。若直接从 Windows 工作目录拷贝脚本到 Linux，请先转换行尾，否则 `bash` 会报 `$'\r'` 语法错误：
@@ -84,9 +84,30 @@ xnode update        # 或进入菜单选「6. 更新脚本」
 | `xnode config` | 修改配置 |
 | `xnode help` | 查看命令用法 |
 
+## 多节点配置
+
+一台服务器可以运行**多个节点**，每个节点对应一个 systemd 模板实例 `xboard-node@<节点ID>.service`，并拥有独立的 `/etc/xboard-node/<节点ID>.yml`。
+
+有两种方式告诉 `sync-nodes` 本机有哪些节点：
+
+1. **手动模式（推荐）**：在 `/etc/xboard-node/sync.yml` 里用 `manual_node_ids` 显式列出全部节点 ID，例如：
+
+   ```yaml
+   manual_node_ids:
+     - 101
+     - 205
+     - 308
+   ```
+
+   之后用 `xnode add-node <ID>` / `xnode remove-node <ID>` 增删节点。这两个命令只会修改 `manual_node_ids` 列表里的目标条目，**不会影响其它节点**（v1.2.9 修复）。
+
+2. **自动模式**：不配置 `manual_node_ids`，由 `sync-nodes` 从面板 API 按服务器指纹自动发现节点。注意：当面板 API 为这台服务器返回 **≥2 个**匹配节点时（中转/CDN 场景常见），出于安全考虑自动模式会**拒绝执行**并提示改用手动模式。
+
+> 多节点场景下请确认 `sync-nodes.timer`（默认每小时）与 `xnode sync` 的并发锁正常工作；`add-node` 已自动复用同一把锁，不会与定时同步互相破坏配置。
+
 ## 配置文件
 
-- 主配置: `/etc/xboard-node/sync.yml`
+- 主配置: `/etc/xboard-node/sync.yml`（含 `manual_node_ids` 多节点列表）
 - 节点别名: `/etc/xboard-node/node_alias.yml`
 - 更新日志: `/var/log/xboard-node-update.log`
 
