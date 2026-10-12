@@ -89,7 +89,7 @@ fi
 
 # 开始安装
 echo "Xboard Node Auto-Sync 安装脚本"
-echo "版本: v1.2.9"
+echo "版本: v1.2.10"
 echo "仓库: https://github.com/ipevel/xnodeauto"
 echo ""
 

@@ -12,7 +12,7 @@ ICON_INFO="[INFO]"
 ICON_ARROW="[->]"
 
 # 脚本版本（发布时与 install.sh 横幅、git tag 同步更新）
-XNODE_VERSION="v1.2.9"
+XNODE_VERSION="v1.2.10"
 
 alias_file="/etc/xboard-node/node_alias.yml"
 

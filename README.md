@@ -99,7 +99,7 @@ xnode update        # 或进入菜单选「6. 更新脚本」
      - 308
    ```
 
-   之后用 `xnode add-node <ID>` / `xnode remove-node <ID>` 增删节点。这两个命令只会修改 `manual_node_ids` 列表里的目标条目，**不会影响其它节点**（v1.2.9 修复）。
+   之后用 `xnode add-node <ID>` / `xnode remove-node <ID>` 增删节点。这两个命令只会修改 `manual_node_ids` 列表里的目标条目，**不会影响其它节点**（v1.2.10 修复）。
 
 2. **自动模式**：不配置 `manual_node_ids`，由 `sync-nodes` 从面板 API 按服务器指纹自动发现节点。注意：当面板 API 为这台服务器返回 **≥2 个**匹配节点时（中转/CDN 场景常见），出于安全考虑自动模式会**拒绝执行**并提示改用手动模式。
 
