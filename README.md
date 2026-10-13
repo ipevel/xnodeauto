@@ -99,11 +99,22 @@ xnode update        # 或进入菜单选「6. 更新脚本」
      - 308
    ```
 
-   之后用 `xnode add-node <ID>` / `xnode remove-node <ID>` 增删节点。这两个命令只会修改 `manual_node_ids` 列表里的目标条目，**不会影响其它节点**（v1.2.10 修复）。
+   之后用 `xnode add-node <ID>` / `xnode remove-node <ID>` 增删节点。这两个命令只会修改 `manual_node_ids` 列表里的目标条目，**不会影响其它节点**（v1.2.10 修复，v1.2.11 补齐边界场景）。
 
 2. **自动模式**：不配置 `manual_node_ids`，由 `sync-nodes` 从面板 API 按服务器指纹自动发现节点。注意：当面板 API 为这台服务器返回 **≥2 个**匹配节点时（中转/CDN 场景常见），出于安全考虑自动模式会**拒绝执行**并提示改用手动模式。
 
 > 多节点场景下请确认 `sync-nodes.timer`（默认每小时）与 `xnode sync` 的并发锁正常工作；`add-node` 已自动复用同一把锁，不会与定时同步互相破坏配置。
+
+> **v1.2.11 补齐的丢 ID 路径**（v1.2.10 仍可复现，均已修复并有回归用例）：
+> - 重跑 `install.sh` 会截断重写 `sync.yml`，此前会整块抹掉 `manual_node_ids` → 现在会备份并保留原有节点列表（选自动模式也保留）。
+> - `manual_node_ids` 列表中间夹注释条目（如 `- # 备用线路`）会让其后的 ID 读不出来，新 ID 还会被插到注释之前 → 注释行不再结束列表扫描。
+> - CRLF 行尾的 `sync.yml` 配行内列表（`manual_node_ids: [101, 205]`）时，`add-node` 会丢掉除首个以外的 ID → 读取时统一剥离 `\r`。
+> - 引号 ID（`- "5"`）读不到、重复追加、`remove-node` 静默失效 → 解析容忍引号。
+> - `manual_node_ids` 键带前导空格时会写出第二个同名键（YAML 将无法解析）→ 键判定统一放宽。
+>
+> 另外 `xnode update` 现在在版本获取失败等中途退出时，会恢复此前被停止的节点与同步定时器（此前会把节点永久停住），升级备份也不再自动删除。
+>
+> 安装脚本支持非交互执行：设置 `XNODE_NONINTERACTIVE=1` 并传入 `XBOARD_URL`/`ADMIN_PATH`/`ADMIN_EMAIL`/`ADMIN_PASSWORD`/`PANEL_TOKEN`（可选 `XNODE_SYNC_MODE=auto|manual`）即可，适合自动化部署。
 
 ## 配置文件
 

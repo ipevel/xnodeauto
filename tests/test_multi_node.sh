@@ -332,6 +332,122 @@ append_manual_node_id 6 "$TMPDIR_TEST/e1.yml"
 check_ids "移除 3 后再添加 6" "1 2 4 5 6" "$TMPDIR_TEST/e1.yml"
 
 echo ""
+echo "[7] 列表内注释条目：其后 ID 不得丢失（v1.2.10 仍可复现的丢 ID 路径）"
+{
+    base_head
+    echo ""
+    echo "manual_node_ids:"
+    echo "  - 1"
+    echo "  - # 备用线路"
+    echo "  - 2"
+    echo "  - 3"
+} > "$TMPDIR_TEST/f1.yml"
+check_ids "注释条目之后的 ID 仍能读出" "1 2 3" "$TMPDIR_TEST/f1.yml"
+append_manual_node_id 9 "$TMPDIR_TEST/f1.yml"
+check_ids "追加后注释之后的 ID 不丢" "1 2 3 9" "$TMPDIR_TEST/f1.yml"
+# 新 ID 必须落在最后一个条目之后，而不是插到注释前面
+if [[ "$(grep -nE '^[[:space:]]*-[[:space:]]*9' "$TMPDIR_TEST/f1.yml" | cut -d: -f1)" \
+      -gt "$(grep -nE '^[[:space:]]*-[[:space:]]*3' "$TMPDIR_TEST/f1.yml" | cut -d: -f1)" ]]; then
+    ok "新 ID 追加在最后条目之后（未插到注释前）"
+else
+    bad "新 ID 被插到了注释之前"
+fi
+
+{
+    base_head
+    echo ""
+    echo "manual_node_ids:"
+    echo "  - 1"
+    echo "  - # 说明"
+    echo "  - 2"
+    echo "  - 3"
+} > "$TMPDIR_TEST/f2.yml"
+remove_manual_node_id 2 "$TMPDIR_TEST/f2.yml"
+check_ids "注释之后的目标条目能被移除" "1 3" "$TMPDIR_TEST/f2.yml"
+
+{
+    base_head
+    echo ""
+    echo "manual_node_ids:"
+    echo "  # 纯注释行"
+    echo "  - 4"
+    echo "  - 5"
+} > "$TMPDIR_TEST/f3.yml"
+append_manual_node_id 6 "$TMPDIR_TEST/f3.yml"
+check_ids "纯注释行不影响读取与追加" "4 5 6" "$TMPDIR_TEST/f3.yml"
+
+echo ""
+echo "[8] CRLF 文件：读取与改写都不得丢 ID"
+printf 'xboard_url: "https://example.com"\r\nmanual_node_ids:\r\n  - 11\r\n  - 22\r\n' > "$TMPDIR_TEST/g1.yml"
+check_ids "CRLF 块列表读取" "11 22" "$TMPDIR_TEST/g1.yml"
+append_manual_node_id 33 "$TMPDIR_TEST/g1.yml"
+check_ids "CRLF 块列表追加" "11 22 33" "$TMPDIR_TEST/g1.yml"
+remove_manual_node_id 11 "$TMPDIR_TEST/g1.yml"
+check_ids "CRLF 块列表移除" "22 33" "$TMPDIR_TEST/g1.yml"
+
+printf 'xboard_url: "https://example.com"\r\nmanual_node_ids: [101, 205]\r\n' > "$TMPDIR_TEST/g2.yml"
+check_ids "CRLF 行内列表读取" "101 205" "$TMPDIR_TEST/g2.yml"
+append_manual_node_id 308 "$TMPDIR_TEST/g2.yml"
+check_ids "CRLF 行内列表追加后 205 必须保留" "101 205 308" "$TMPDIR_TEST/g2.yml"
+
+echo ""
+echo "[9] 引号 ID：读/追加/移除与 yaml.v3 语义一致"
+{
+    base_head
+    echo ""
+    echo "manual_node_ids:"
+    echo '  - "5"'
+    echo "  - 6"
+} > "$TMPDIR_TEST/h1.yml"
+check_ids "引号 ID 可读" "5 6" "$TMPDIR_TEST/h1.yml"
+append_manual_node_id 7 "$TMPDIR_TEST/h1.yml"
+check_ids "引号 ID 存在时追加不产生重复" "5 6 7" "$TMPDIR_TEST/h1.yml"
+remove_manual_node_id 5 "$TMPDIR_TEST/h1.yml"
+check_ids "引号 ID 可移除" "6 7" "$TMPDIR_TEST/h1.yml"
+
+{
+    base_head
+    echo "manual_node_ids: [\"8\", 9]"
+} > "$TMPDIR_TEST/h2.yml"
+check_ids "行内列表中的引号 ID 可读" "8 9" "$TMPDIR_TEST/h2.yml"
+
+echo ""
+echo "[10] 键写法容错：前导空格键 / 无键 / 空列表 / 幂等"
+{
+    base_head
+    echo "  manual_node_ids:"
+    echo "  - 13"
+} > "$TMPDIR_TEST/i1.yml"
+append_manual_node_id 22 "$TMPDIR_TEST/i1.yml"
+if [[ "$(grep -cE '^[[:space:]]*manual_node_ids:' "$TMPDIR_TEST/i1.yml")" -eq 1 ]]; then
+    ok "前导空格键：未写出第二个同名键"
+else
+    bad "前导空格键写出了第二个同名键（YAML 将不可解析）"
+fi
+check_ids "前导空格键：读到的 ID 完整" "13 22" "$TMPDIR_TEST/i1.yml"
+
+{
+    base_head
+} > "$TMPDIR_TEST/i2.yml"
+append_manual_node_id 5 "$TMPDIR_TEST/i2.yml"
+check_ids "无 manual_node_ids 键时追加" "5" "$TMPDIR_TEST/i2.yml"
+
+{
+    base_head
+    echo "manual_node_ids: []"
+} > "$TMPDIR_TEST/i3.yml"
+append_manual_node_id 4 "$TMPDIR_TEST/i3.yml"
+check_ids "空列表 [] 时追加" "4" "$TMPDIR_TEST/i3.yml"
+
+{
+    base_head
+    echo "manual_node_ids:"
+    echo "  - 1"
+} > "$TMPDIR_TEST/i4.yml"
+append_manual_node_id 1 "$TMPDIR_TEST/i4.yml"
+check_ids "重复添加同一 ID 保持幂等" "1" "$TMPDIR_TEST/i4.yml"
+
+echo ""
 echo "============================================"
 echo "通过: $PASS  失败: $FAIL"
 echo "============================================"

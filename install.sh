@@ -89,7 +89,7 @@ fi
 
 # 开始安装
 echo "Xboard Node Auto-Sync 安装脚本"
-echo "版本: v1.2.10"
+echo "版本: v1.2.11"
 echo "仓库: https://github.com/ipevel/xnodeauto"
 echo ""
 
@@ -281,8 +281,32 @@ show_success "systemd 已重载"
 # ---------- 9. 配置引导 ----------
 show_step 9 9 "配置设置"
 
+# 非交互模式：XNODE_NONINTERACTIVE=1 时全部走环境变量，不再提示输入。
+# 用于自动化部署与回归测试；缺变量直接报错退出，不静默使用空值。
+NONINTERACTIVE="${XNODE_NONINTERACTIVE:-0}"
+
+if [ "$NONINTERACTIVE" = "1" ]; then
+    echo "非交互模式：从环境变量读取配置"
+    MISSING=""
+    [ -z "$XBOARD_URL" ] && MISSING="$MISSING XBOARD_URL"
+    [ -z "$ADMIN_PATH" ] && MISSING="$MISSING ADMIN_PATH"
+    [ -z "$ADMIN_EMAIL" ] && MISSING="$MISSING ADMIN_EMAIL"
+    [ -z "$ADMIN_PASSWORD" ] && MISSING="$MISSING ADMIN_PASSWORD"
+    [ -z "$PANEL_TOKEN" ] && MISSING="$MISSING PANEL_TOKEN"
+    if [ -n "$MISSING" ]; then
+        show_error "非交互模式缺少环境变量:$MISSING"
+        exit 1
+    fi
+    SYNC_MODE="${XNODE_SYNC_MODE:-manual}"
+    case "$SYNC_MODE" in
+        auto|manual) : ;;
+        *) show_error "XNODE_SYNC_MODE 只能是 auto 或 manual，当前: $SYNC_MODE"; exit 1 ;;
+    esac
+    show_success "配置已从环境变量读取（同步方式: $SYNC_MODE）"
+fi
+
 # 如果没有通过参数传入配置，则引导用户填写
-if [ -z "$XBOARD_URL" ] || [ -z "$ADMIN_PATH" ] || [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ] || [ -z "$PANEL_TOKEN" ]; then
+if [ "$NONINTERACTIVE" != "1" ] && { [ -z "$XBOARD_URL" ] || [ -z "$ADMIN_PATH" ] || [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ] || [ -z "$PANEL_TOKEN" ]; }; then
     echo "请填写以下配置信息"
     echo ""
     
@@ -378,6 +402,32 @@ esac
 for pair in "面板地址:$XBOARD_URL" "后台路径:$ADMIN_PATH" "管理员邮箱:$ADMIN_EMAIL" "管理员密码:$ADMIN_PASSWORD" "节点通信密钥:$PANEL_TOKEN"; do
     validate_yaml_value "${pair%%:*}" "${pair#*:}" || exit 1
 done
+
+# 重跑安装会截断重写 sync.yml，先把原有手动节点列表整块保下来，
+# 否则 manual_node_ids 会连同文件一起消失（选自动模式时更会直接归零），
+# 之后 sync-nodes 转入自动模式，只认面板匹配到的那 1 个节点，
+# 其余节点被停用并删除配置 —— 这正是「一台服务器只剩一个节点」的成因之一。
+OLD_SYNC_BACKUP=""
+if [ -f /etc/xboard-node/sync.yml ]; then
+    OLD_SYNC_BACKUP=$(mktemp /tmp/xnode-sync-old.XXXXXX)
+    cp -f /etc/xboard-node/sync.yml "$OLD_SYNC_BACKUP"
+fi
+
+OLD_MANUAL_BLOCK=""
+if [ -n "$OLD_SYNC_BACKUP" ] && [ -s "$OLD_SYNC_BACKUP" ]; then
+    # 提取 manual_node_ids 块：键行（允许前导空格）+ 其后的列表条目与注释，遇到下一个顶层键结束
+    OLD_MANUAL_BLOCK=$(awk '
+        /^[[:space:]]*manual_node_ids:/ { inblk=1; print; next }
+        inblk && /^[^[:space:]]/ { inblk=0 }
+        inblk { print }
+    ' "$OLD_SYNC_BACKUP")
+fi
+
+OLD_MANUAL_IDS=""
+if [ -n "$OLD_MANUAL_BLOCK" ]; then
+    OLD_MANUAL_IDS=$(printf '%s\n' "$OLD_MANUAL_BLOCK" | grep -oE '^[[:space:]]*-[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tr '\n' ' ')
+fi
+
 cat > /etc/xboard-node/sync.yml << EOF
 xboard_url: "${XBOARD_URL}"
 admin_path: "${ADMIN_PATH}"
@@ -395,26 +445,38 @@ if [ "$SYNC_MODE" = "manual" ]; then
     echo "手动添加节点"
     echo ""
     echo "请输入节点ID，多个ID用逗号分隔（例如: 1,2,3）"
-    echo "如果暂时不添加，请直接按回车跳过"
+    if [ -n "$OLD_MANUAL_IDS" ]; then
+        echo "检测到原有节点: $OLD_MANUAL_IDS"
+        echo "直接回车＝保留原有节点列表；输入新 ID＝改用新列表"
+    else
+        echo "如果暂时不添加，请直接按回车跳过"
+    fi
     echo ""
     read -rp "请输入节点ID: " NODE_IDS_INPUT || exit 1
     NODE_IDS=()
     
     if [ -n "$NODE_IDS_INPUT" ]; then
-        # 解析节点ID（支持逗号分隔），校验必须为纯数字
-        IFS=',' read -ra NODE_IDS_ALL <<< "$NODE_IDS_INPUT"
+        # 解析节点ID：逗号与空白都算分隔符，必须为纯数字，并去重。
+        # 旧写法只按逗号切分，输入 "1 2 3" 会被拼成 123 且通过数字校验 → 真节点全丢
+        read -ra NODE_IDS_ALL <<< "$(printf '%s' "$NODE_IDS_INPUT" | tr ',' ' ')"
         NODE_IDS=()
         for id in "${NODE_IDS_ALL[@]}"; do
-            id=$(echo "$id" | tr -d ' ')
+            id="${id//[[:space:]]/}"
+            [ -z "$id" ] && continue
             if [[ "$id" =~ ^[0-9]+$ ]]; then
-                NODE_IDS+=("$id")
+                # 去重，避免同一 ID 重复写入
+                dup=0
+                for exist in "${NODE_IDS[@]}"; do
+                    [ "$exist" = "$id" ] && dup=1 && break
+                done
+                [ "$dup" -eq 0 ] && NODE_IDS+=("$id")
             else
                 show_warn "忽略无效节点ID: '$id'（必须为纯数字）"
             fi
         done
     fi
 
-    # 写入节点配置（无有效 ID 时写空数组）
+    # 写入节点配置（优先级：本次输入的新列表 > 原有列表 > 空数组）
     if [ ${#NODE_IDS[@]} -gt 0 ]; then
         echo ""
         echo "添加节点ID: ${NODE_IDS[*]}"
@@ -429,6 +491,11 @@ if [ "$SYNC_MODE" = "manual" ]; then
         done
 
         show_success "已添加 ${#NODE_IDS[@]} 个节点到配置"
+    elif [ -n "$OLD_MANUAL_BLOCK" ]; then
+        # 本次没输入新 ID：沿用重跑安装前的节点列表，避免重装把节点清空
+        echo "" >> /etc/xboard-node/sync.yml
+        printf '%s\n' "$OLD_MANUAL_BLOCK" >> /etc/xboard-node/sync.yml
+        show_success "已保留原有节点列表: $OLD_MANUAL_IDS"
     else
         # 没有输入节点ID，创建空的手动配置
         echo "" >> /etc/xboard-node/sync.yml
@@ -437,7 +504,17 @@ if [ "$SYNC_MODE" = "manual" ]; then
         echo ""
         show_info "稍后可以使用 xnode add-node <节点ID> 添加节点"
     fi
+else
+    # 自动模式：原有手动节点列表同样要保住
+    if [ -n "$OLD_MANUAL_BLOCK" ]; then
+        echo "" >> /etc/xboard-node/sync.yml
+        printf '%s\n' "$OLD_MANUAL_BLOCK" >> /etc/xboard-node/sync.yml
+        show_success "已保留原有节点列表: $OLD_MANUAL_IDS（自动模式下仍生效）"
+    fi
 fi
+
+# 备份文件已完成使命，清理
+[ -n "$OLD_SYNC_BACKUP" ] && [ -f "$OLD_SYNC_BACKUP" ] && rm -f "$OLD_SYNC_BACKUP"
 
 # ---------- 完成提示 ----------
 echo ""

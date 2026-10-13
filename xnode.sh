@@ -12,7 +12,7 @@ ICON_INFO="[INFO]"
 ICON_ARROW="[->]"
 
 # 脚本版本（发布时与 install.sh 横幅、git tag 同步更新）
-XNODE_VERSION="v1.2.10"
+XNODE_VERSION="v1.2.11"
 
 alias_file="/etc/xboard-node/node_alias.yml"
 
@@ -635,8 +635,9 @@ get_manual_node_ids() {
 
     local line seen=0 in_list=0 inline v
     while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"          # CRLF 文件：行尾 \r 会让「行内列表」解析失效
         if [[ $seen -eq 0 ]]; then
-            if [[ "$line" =~ ^manual_node_ids:[[:space:]]*(.*)$ ]]; then
+            if [[ "$line" =~ ^[[:space:]]*manual_node_ids:[[:space:]]*(.*)$ ]]; then
                 seen=1
                 inline="${BASH_REMATCH[1]}"
                 inline="${inline%%#*}"          # 去掉行尾注释
@@ -646,10 +647,13 @@ get_manual_node_ids() {
                     continue
                 fi
                 if [[ "$inline" == \[* ]]; then
-                    # 行内列表 [1,2] 展开输出
+                    # 行内列表 [1,2] 展开输出（容忍引号与尾部注释）
                     inline="${inline#[}"
                     inline="${inline%]}"
                     for v in ${inline//,/ }; do
+                        v="${v%%#*}"
+                        v="${v//\"/}"
+                        v="${v//\'/}"
                         [[ "$v" =~ ^[0-9]+$ ]] && echo "$v"
                     done
                 fi
@@ -657,10 +661,15 @@ get_manual_node_ids() {
             continue
         fi
         if [[ $in_list -eq 1 ]]; then
-            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*([0-9]+) ]]; then
+            # 条目允许可选引号（- "5" / - '5'）：yaml.v3 会把它解成 5，
+            # 若这里不认，shell 视图会与真实列表分叉（remove 静默无效、重复添加）
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*[\"\']?([0-9]+)[\"\']? ]]; then
                 echo "${BASH_REMATCH[1]}"
                 continue
             fi
+            # 注释行（含「- # 说明」这种列表内注释条目）与空行都不结束列表，
+            # 否则注释之后的既有 ID 会被当成「不在列表里」
+            [[ "$line" =~ ^[[:space:]]*(-[[:space:]]*)?# ]] && continue
             [[ "$line" =~ ^[[:space:]]*$ ]] && continue
             in_list=0
         fi
@@ -716,10 +725,13 @@ append_manual_node_id() {
     local line inline="" key_kind="none" key_line=0 lineno=0
     local last_entry_line=0 entry_indent="  " entry_indent_seen=0
     while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"          # CRLF：行尾 \r 会让键与条目正则全部失配
         lineno=$((lineno + 1))
         if [[ $key_line -eq 0 ]]; then
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            if [[ "$line" =~ ^manual_node_ids:[[:space:]]*(.*)$ ]]; then
+            # 键判定必须与 add_node 的 grep 一致（允许前导空格）：否则键带前导空格时
+            # 这里找不到键 → 走「整块追加到文件末尾」→ 写出第二个同名键 → YAML 解析失败
+            if [[ "$line" =~ ^[[:space:]]*manual_node_ids:[[:space:]]*(.*)$ ]]; then
                 key_line=$lineno
                 inline="${BASH_REMATCH[1]}"
                 inline="${inline%%#*}"          # 去掉行尾注释
@@ -736,9 +748,12 @@ append_manual_node_id() {
         fi
         # 只有空列表写法才需要向下找块列表条目；行内列表/标量到这就结束
         [[ $key_kind != "empty" ]] && break
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        # 注释行与空行都不结束列表：必须跳过，否则「- # 说明」这类列表内注释
+        # 会让扫描在此 break，last_entry_line 停在注释之前，新 ID 被插到注释前面，
+        # 注释之后的既有 ID 全部变成「不在列表里」→ 下次同步被停用并删除配置
+        [[ "$line" =~ ^[[:space:]]*(-[[:space:]]*)?# ]] && continue
         [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-        if [[ "$line" =~ ^([[:space:]]*)-[[:space:]]*([0-9]+) ]]; then
+        if [[ "$line" =~ ^([[:space:]]*)-[[:space:]]*[\"\']?([0-9]+)[\"\']? ]]; then
             entry_indent="${BASH_REMATCH[1]}"   # 沿用原列表缩进
             entry_indent_seen=1
             last_entry_line=$lineno
@@ -761,11 +776,14 @@ append_manual_node_id() {
         if [[ $key_line -gt 0 && $lineno -eq $key_line ]]; then
             case "$key_kind" in
                 inline)
-                    # 行内列表展开为块列表，并追加新 ID
+                    # 行内列表展开为块列表，并追加新 ID（去掉引号，保持与读取一致）
                     echo "manual_node_ids:"
                     v="${inline#\[}"
                     v="${v%\]}"
                     for x in ${v//,/ }; do
+                        x="${x%%#*}"
+                        x="${x//\"/}"
+                        x="${x//\'/}"
                         [[ "$x" =~ ^[0-9]+$ ]] && echo "  - $x"
                     done
                     echo "  - $node_id"
@@ -843,10 +861,12 @@ remove_manual_node_id() {
     local line inline="" key_kind="none" key_line=0 lineno=0 first_entry=0 v x
     local -a keep=()
     while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"          # CRLF：行尾 \r 会让键与条目正则失配
         lineno=$((lineno + 1))
         if [[ $key_line -eq 0 ]]; then
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            if [[ "$line" =~ ^manual_node_ids:[[:space:]]*(.*)$ ]]; then
+            # 与 add_node / append_manual_node_id 保持同一判定（允许前导空格）
+            if [[ "$line" =~ ^[[:space:]]*manual_node_ids:[[:space:]]*(.*)$ ]]; then
                 key_line=$lineno
                 inline="${BASH_REMATCH[1]}"
                 inline="${inline%%#*}"
@@ -862,9 +882,11 @@ remove_manual_node_id() {
             continue
         fi
         [[ $key_kind == "empty" ]] || break
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        # 注释行与空行都不结束列表（含「- # 说明」这种列表内注释条目）：
+        # 否则扫描在此 break，first_entry 停在前一条目，移除时判不出列表区域 → 静默不删
+        [[ "$line" =~ ^[[:space:]]*(-[[:space:]]*)?# ]] && continue
         [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-        if [[ "$line" =~ ^([[:space:]]*)-[[:space:]]*([0-9]+) ]]; then
+        if [[ "$line" =~ ^([[:space:]]*)-[[:space:]]*[\"\']?([0-9]+)[\"\']? ]]; then
             # 记录第一条目的行号：第二遍据此判断「列表区域」
             [[ $first_entry -eq 0 ]] && first_entry=$lineno
             continue
@@ -884,6 +906,7 @@ remove_manual_node_id() {
 
     lineno=0
     while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"          # 判断用（输出去 \r 后统一 LF，避免 CRLF 残留）
         lineno=$((lineno + 1))
         if [[ $lineno -eq $key_line ]]; then
             case "$key_kind" in
@@ -892,6 +915,9 @@ remove_manual_node_id() {
                     v="${v%\]}"
                     keep=()
                     for x in ${v//,/ }; do
+                        x="${x%%#*}"
+                        x="${x//\"/}"
+                        x="${x//\'/}"
                         [[ "$x" =~ ^[0-9]+$ ]] || continue
                         [[ "$x" == "$node_id" ]] && continue
                         keep+=("$x")
@@ -917,9 +943,11 @@ remove_manual_node_id() {
             continue
         fi
         if [[ $first_entry -gt 0 && $lineno -ge $first_entry ]]; then
-            # 列表区域内：只删目标 ID，其余条目/注释/空行原样保留
-            [[ "$line" =~ ^[[:space:]]*# ]] && { echo "$line"; continue; }
-            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*([0-9]+) ]]; then
+            # 列表区域内：只删目标 ID，其余条目/注释/空行原样保留。
+            # 注释判断必须容忍「- # 说明」形态，否则会走到下面把 first_entry 重置为 0，
+            # 列表区域提前结束 → 目标条目位于注释之后时移除静默失效
+            [[ "$line" =~ ^[[:space:]]*(-[[:space:]]*)?# ]] && { echo "$line"; continue; }
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*[\"\']?([0-9]+)[\"\']? ]]; then
                 [[ "${BASH_REMATCH[1]}" == "$node_id" ]] && continue
                 echo "$line"
                 continue
@@ -969,7 +997,9 @@ add_node() {
 
     # 检查是否已在配置中
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
+        # 键判定不依赖「必须第 0 列」：键带前导空格时也要认出来，
+        # 否则会走 append 追加出第二个同名键（YAML 取后者、xnode 取前者 → 判断分叉）
+        if grep -qE "^[[:space:]]*manual_node_ids:" /etc/xboard-node/sync.yml; then
             if manual_node_id_exists "$node_id" /etc/xboard-node/sync.yml; then
                 echo "${ICON_WARN} 节点 $node_id 已在配置中"
 
@@ -1009,18 +1039,13 @@ add_node() {
         return 1
     fi
     if [[ -f /etc/xboard-node/sync.yml ]]; then
-        if grep -q "^manual_node_ids:" /etc/xboard-node/sync.yml; then
-            # 已有 manual_node_ids（含空数组 [] 与行内列表）：安全追加，不覆盖已有条目
-            if ! append_manual_node_id "$node_id" /etc/xboard-node/sync.yml; then
-                echo "${ICON_ERR} 写入 /etc/xboard-node/sync.yml 失败，节点列表未变更"
-                return 1
-            fi
-        else
-            # 没有 manual_node_ids,添加到文件末尾
-            echo "" >> /etc/xboard-node/sync.yml
-            echo "# 手动指定的节点ID" >> /etc/xboard-node/sync.yml
-            echo "manual_node_ids:" >> /etc/xboard-node/sync.yml
-            echo "  - $node_id" >> /etc/xboard-node/sync.yml
+        # 统一走 append_manual_node_id：它自带幂等去重、原子替换、权限保持，
+        # 且在没有 manual_node_ids 键时会自行追加整块（见函数内 inserted 兜底）。
+        # 旧写法在这里分叉：键存在才走安全函数，否则用 echo >> 直接追加
+        # （不幂等、不保权限、非原子、不持锁），键带前导空格时还会写出第二个同名键。
+        if ! append_manual_node_id "$node_id" /etc/xboard-node/sync.yml; then
+            echo "${ICON_ERR} 写入 /etc/xboard-node/sync.yml 失败，节点列表未变更"
+            return 1
         fi
         echo "${ICON_OK} 已添加节点 $node_id 到配置"
     else
@@ -1418,6 +1443,32 @@ update_all() {
 
     local fail_count=0
 
+    # 恢复兜底：本函数会先停掉所有节点再下载组件，中途任何失败（版本获取失败、
+    # 下载失败、架构不支持）都会 return，而唯一的重启点在函数末尾。
+    # 没有兜底时节点会永久停着（Restart=on-failure 对「干净停止」不生效），
+    # 这正是「xnode update 之后节点全掉了」的成因。故挂 RETURN trap 统一恢复。
+    STOPPED_NODES=""
+    SYNC_TIMER_WAS_ACTIVE=0
+    UPDATE_TIMER_WAS_ACTIVE=0
+    RESTORE_DONE=0
+    restore_nodes_on_exit() {
+        [ "${RESTORE_DONE:-1}" = "1" ] && return 0
+        RESTORE_DONE=1
+        if [ -n "${STOPPED_NODES:-}" ]; then
+            echo ""
+            echo "[INFO] 恢复被停止的节点..."
+            for n in $STOPPED_NODES; do
+                systemctl start "xboard-node@${n}.service" 2>/dev/null \
+                    && echo "  [OK] 已恢复节点: $n" \
+                    || echo "  [WARN] 节点 $n 恢复失败，请手动检查"
+            done
+        fi
+        [ "${SYNC_TIMER_WAS_ACTIVE:-0}" = "1" ] && systemctl start sync-nodes.timer 2>/dev/null
+        [ "${UPDATE_TIMER_WAS_ACTIVE:-0}" = "1" ] && systemctl start update-xboard-node.timer 2>/dev/null
+        [ -n "${BACKUP_DIR:-}" ] && [ -d "$BACKUP_DIR" ] && rm -rf "$BACKUP_DIR"
+        return 0
+    }
+
     # 并发锁：防止与同步/其他更新同时运行（函数返回时自动释放）
     exec 9>/var/lock/xnode-update.lock 2>/dev/null || true
     if ! flock -n 9 2>/dev/null; then
@@ -1427,6 +1478,8 @@ update_all() {
     fi
     release_update_lock() { flock -u 9 2>/dev/null; exec 9>&- 2>/dev/null || true; }
     trap release_update_lock RETURN
+    # 注意顺序：后注册的先执行，所以先恢复节点再释放锁
+    trap restore_nodes_on_exit RETURN
 
     # 备份配置（放到 /var/backups，避免 /tmp 下含凭据的备份暴露；mktemp 防路径猜测）
     local backup_parent="/var/backups"
@@ -1444,12 +1497,17 @@ update_all() {
     # 停止服务
     echo "[INFO] 停止服务..."
     local RUNNING_NODES=$(systemctl list-units --type=service --state=running | grep "xboard-node@" | awk '{print $1}' | cut -d'@' -f2 | cut -d'.' -f1)
+    STOPPED_NODES="$RUNNING_NODES"
     if [ -n "$RUNNING_NODES" ]; then
         for node in $RUNNING_NODES; do
             systemctl stop "xboard-node@$node" 2>/dev/null
             echo "  [OK] 停止节点: $node"
         done
     fi
+    # 记录 timer 原本是否在跑：失败路径只恢复「本来在跑」的，避免把用户
+    # 特意停掉的自动更新 timer（a93876f 起默认手动更新）又打开
+    systemctl is-active --quiet sync-nodes.timer 2>/dev/null && SYNC_TIMER_WAS_ACTIVE=1
+    systemctl is-active --quiet update-xboard-node.timer 2>/dev/null && UPDATE_TIMER_WAS_ACTIVE=1
     systemctl stop sync-nodes.timer 2>/dev/null
     systemctl stop update-xboard-node.timer 2>/dev/null
     echo "[OK] 服务已停止"
@@ -1529,14 +1587,20 @@ update_all() {
         echo "  [ERR] xnode 下载失败"
     fi
 
-    # 下载 systemd 文件（逐文件校验，失败计入 fail_count）
+    # 下载 systemd 文件（先下临时文件再原子替换，失败不动活路径）
     echo "  [->] systemd 服务文件"
     local sysd_fail=0
     for file in xboard-node@.service sync-nodes.service sync-nodes.timer update-xboard-node.service update-xboard-node.timer; do
-        if wget --timeout=30 -q -O "/etc/systemd/system/$file" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/systemd/$file" 2>/dev/null && [ -s "/etc/systemd/system/$file" ]; then
+        local sysd_tmp; sysd_tmp="$(mktemp "/tmp/${file}.XXXXXX")"
+        # 不能直接 wget -O 活路径：目标会先被截断，中断/错误页会毁掉单元文件，
+        # 之后 start 又把错误吞掉 → 同步静默停摆
+        if wget --timeout=30 -q -O "$sysd_tmp" "https://raw.githubusercontent.com/ipevel/xnodeauto/main/systemd/$file?t=$(date +%s)" 2>/dev/null \
+            && [ -s "$sysd_tmp" ] && grep -qE '^\s*\[(Unit|Timer|Service)\]' "$sysd_tmp"; then
+            mv -f "$sysd_tmp" "/etc/systemd/system/$file"
             echo "  [OK] $file"
         else
-            echo "  [ERR] $file 下载失败"
+            rm -f "$sysd_tmp"
+            echo "  [ERR] $file 下载失败（保留原有单元文件）"
             sysd_fail=$((sysd_fail+1))
         fi
     done
@@ -1568,8 +1632,8 @@ update_all() {
         [ -f "$file" ] && cp "$file" /etc/xboard-node/ && echo "  [OK] $(basename $file)"
     done
     [ -f "$BACKUP_DIR/node_alias.yml" ] && cp "$BACKUP_DIR/node_alias.yml" /etc/xboard-node/ && echo "  [OK] node_alias.yml"
-    rm -rf "$BACKUP_DIR"
-    echo "[OK] 配置恢复完成"
+    # 备份保留而非删除：万一更新后配置仍异常，用户还能从备份恢复（此前是 rm -rf）
+    echo "[OK] 配置恢复完成（备份保留在 $BACKUP_DIR）"
     echo ""
 
     # 重启服务
@@ -1581,9 +1645,16 @@ update_all() {
         done
         echo ""
     fi
+    # 成功路径已自行重启节点，标记后 RETURN trap 不再重复恢复
+    RESTORE_DONE=1
 
-    systemctl start sync-nodes.timer 2>/dev/null
-    # 自动更新定时器不在此重启（默认手动更新；如需恢复自动更新，用菜单 5 → 4 启用）
+    # 只恢复「更新前本来在跑」的同步定时器；没在跑的不要顺手打开
+    if [ "$SYNC_TIMER_WAS_ACTIVE" = "1" ]; then
+        systemctl start sync-nodes.timer 2>/dev/null
+    fi
+    # 自动更新定时器显式停用：只 stop 不 disable 的话，机器重启后 systemd 会把它拉起来，
+    # 于是「每日自动更新」复活（a93876f 起默认手动更新）。要恢复用菜单 5 → 4。
+    systemctl disable --now update-xboard-node.timer >/dev/null 2>&1 || true
 
     echo "============================================"
     if [ "$fail_count" -gt 0 ]; then
@@ -1596,8 +1667,11 @@ update_all() {
     echo "============================================"
     echo ""
 
-    echo -n "按 Enter 继续..."
-    read temp
+    # 非交互（如自动化/CI）不要卡在等待输入
+    if [ -t 0 ]; then
+        echo -n "按 Enter 继续..."
+        read temp
+    fi
 }
 
 install_all() {
