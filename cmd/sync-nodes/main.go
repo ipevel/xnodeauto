@@ -36,7 +36,7 @@ const (
 	unitFmt           = "xboard-node@%d.service"
 	unitGlob          = "xboard-node@*.service"
 	httpTO            = 20 * time.Second
-	version           = "1.3.0"
+	version           = "1.3.1"
 )
 
 var (
@@ -60,6 +60,10 @@ type SyncConfig struct {
 	KernelLogLevel string `yaml:"kernel_log_level"` // 默认 warn
 	ConfigDir      string `yaml:"config_dir"`       // 默认 /etc/xboard-node
 	CertMode       string `yaml:"cert_mode"`        // 可选，写入 cert 段
+
+	// 按节点覆盖内核：node_id -> xray|singbox。
+	// 用于同机混跑不同协议的节点（如 xhttp 需要 xray、tuic 需要 sing-box）。
+	NodeKernelTypes map[int]string `yaml:"node_kernel_types"`
 }
 
 // 实例配置文件结构：panel + kernel (+ cert)
@@ -314,6 +318,11 @@ func loadConfig(path string) (*SyncConfig, error) {
 }
 
 func buildNodeConfig(cfg *SyncConfig, nodeID int) nodeConfig {
+	// 按节点覆盖内核（node_kernel_types），未配置时用全局 kernel_type
+	kernelType := cfg.KernelType
+	if kt, ok := cfg.NodeKernelTypes[nodeID]; ok && kt != "" {
+		kernelType = kt
+	}
 	nc := nodeConfig{
 		Panel: panelConfig{
 			URL:    cfg.XboardURL,
@@ -321,7 +330,7 @@ func buildNodeConfig(cfg *SyncConfig, nodeID int) nodeConfig {
 			NodeID: nodeID,
 		},
 		Kernel: kernelConfig{
-			Type:      cfg.KernelType,
+			Type:      kernelType,
 			ConfigDir: cfg.ConfigDir,
 			LogLevel:  cfg.KernelLogLevel,
 		},
